@@ -177,6 +177,22 @@ node scripts/shots.mjs          # スクリーンショット検証
 | 運用変更 | 静的ホストに常設後は serve.mjs/tunnel/watchdog は退役可。現在の暫定URL: `TUNNEL_URL.txt` 参照（trycloudflare は ephemeral） |
 | 恒久ホスト自動発行の試み | surge.sh は CLI デプロイ成功後も**新規アカウントのメール認証ゲート（403）**で公開不可。使い捨てメールドメイン（mail.tm 等）には認証メールが配信されず（8分×2アカウントで不達確認）。`netlify-cli` の `--allow-anonymous` も廃止済み（v17 で unknown option）。Netlify Drop / GitHub Pages はブラウザ側のログイン操作が必要なため手動運用（zip 投入で 1 分） |
 
+#### 2026-11-04c GitHub Pages 運用（恒久URL・自動デプロイ）
+
+リポジトリを GitHub に置くだけで `https://<user>.github.io/airliner-sim/` に恒久公開。push ごとに **typecheck→build→Pages デプロイが自動**（`.github/workflows/pages.yml`）。
+
+**ルートA: フルリポジトリ + Actions（推奨・更新自動化）**
+1. github.com/new で `airliner-sim`（Public）作成
+2. `deploy/airliner-sim-repo.zip`（1.6MB・91ファイル、node_modules/web 除く全ソース）を「uploading an existing file」でドラッグ → commit。または `git init` 済みなので `git remote add origin … && git push -u origin main`
+3. Settings → Pages → **Source: GitHub Actions**（ブランチ選択式のままにしない）
+4. Actions タブの "Deploy to GitHub Pages" 成功後、上記URLで公開済み（ビルド約1〜2分）
+
+**ルートB: 静的zipのみ（即公開・更新は手動）**
+1. 新規リポジトリに `deploy/airliner-sim-static.zip` を解凍した 4ファイル（`index.html` / `assets/` / `.nojekyll`）を upload
+2. Settings → Pages → Source: `Deploy from a branch` → `main` / `/ (root)` → Save → 約1分で `https://<user>.github.io/<repo>/`
+
+注意点: `vite.config` の `base:'./'` によりサブパス `/repo/` で動作確認済み（絶対パス不要）。`web/` 直下に **CNAME ファイルを残さない**（サロゲート独自ドメイン指定と誤読される。surge 実験時の残骸は削除済み）。
+
 ### 未確認 / 既知の制約
 
 - **未確認**: 実機 iPhone のフレームレート・発熱・タッチ操作感・実際の音量バランス / 自動画質調整の実機挙動 / **speechSynthesis による英語コールの実機 iPhone 音質・遅延**（ヘッドレスでは発話自体を確認できない。バナー表示は browser-smoke で検証済み）
