@@ -33,6 +33,10 @@ export interface AirlinerSpec {
   /** 主脚の車輪数（片側） */
   mainWheelCount: number;
   /** ===== リバリー（塗装色） ===== */
+  /** 胴体に描く社名 */
+  liveryName: string;
+  /** 胴体後部に描く登録記号 */
+  liveryRegistration: string;
   liveryTop: number;
   liveryBottom: number;
   liveryAccent: number;
@@ -65,6 +69,8 @@ export const AIRCRAFT: AirlinerSpec[] = [
     engineSpanPos: 0.30,
     engineForward: 1.6,
     mainWheelCount: 2,
+    liveryName: 'SKYLINER',
+    liveryRegistration: 'JA73AI',
     liveryTop: 0xe8eef4,
     liveryBottom: 0x2a4f7c,
     liveryAccent: 0xffb23c,
@@ -96,6 +102,8 @@ export const AIRCRAFT: AirlinerSpec[] = [
     engineSpanPos: 0.31,
     engineForward: 1.7,
     mainWheelCount: 2,
+    liveryName: 'SKYLINER',
+    liveryRegistration: 'JA20AS',
     liveryTop: 0xf2f4f7,
     liveryBottom: 0x1d3f6e,
     liveryAccent: 0x4fc3f7,
@@ -124,6 +132,8 @@ export const AIRCRAFT: AirlinerSpec[] = [
     engineSpanPos: 0.28,
     engineForward: 2.6,
     mainWheelCount: 3,
+    liveryName: 'SKYLINER',
+    liveryRegistration: 'JA77AJ',
     liveryTop: 0xeef1f5,
     liveryBottom: 0x14304e,
     liveryAccent: 0xff6b5a,

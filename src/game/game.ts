@@ -249,7 +249,8 @@ export class Game {
       });
       this.previewScene.remove(g);
     }
-    this.previewAircraft = buildAirliner(spec, { low: true });
+    // メニュープレビューは 1 機のみ・フルディテール（機体グラフィックの魅せ場）
+    this.previewAircraft = buildAirliner(spec, { low: false });
     this.previewAircraft.setGearPosition(1);
     // プレビューはやや斜めに見せる
     const size = spec.fuselageLength;

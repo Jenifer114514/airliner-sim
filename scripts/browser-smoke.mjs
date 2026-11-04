@@ -11,7 +11,7 @@ const root = new URL('..', import.meta.url).pathname;
 const server = spawn(process.execPath, ['scripts/serve.mjs', String(PORT)], { cwd: root, stdio: 'ignore' });
 await delay(700);
 
-const browser = await chromium.launch({
+const browser = await chromium.launch({ executablePath: process.env.CHROME_BIN || undefined,
   headless: true,
   args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']
 });
@@ -256,7 +256,8 @@ const apUi = await page.evaluate(async () => {
   const tap = (id) => document.getElementById(id).dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 90 + Math.random() } ));
   tap('btn-ap');
   await raf(3);
-  const engaged = G().ap.engaged;
+  let engaged = G().ap.engaged; // 低速環境でのタップ反映遅れを条件待ちで吸収
+  for (let i = 0; i < 24 && !engaged; i++) { await new Promise((res) => setTimeout(res, 250)); engaged = G().ap.engaged; }
   const altBefore = G().ap.altTarget;
   // SwiftShader では rAF が枯れることがある → main loop が strip を描画するまで条件待ち
   let stripVisible = false, stripText = '';
@@ -277,7 +278,8 @@ const apUi = await page.evaluate(async () => {
   const btnText = document.getElementById('btn-ap').textContent || '';
   tap('btn-ap');
   await raf(2);
-  const disengaged = !G().ap.engaged;
+  let disengaged = !G().ap.engaged;
+  for (let i = 0; i < 24 && !disengaged; i++) { await new Promise((res) => setTimeout(res, 250)); disengaged = !G().ap.engaged; }
   tap('btn-ap-set');
   return { engaged, stripVisible, stripHasAP: /AP/.test(stripText), spdKept: spdKt > 60, panelOpen, altGain: altAfter - altBefore, disengaged, btnOn: /ON/.test(btnText) };
 });

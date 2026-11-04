@@ -193,58 +193,232 @@ export function makeConcreteTexture(): THREE.CanvasTexture {
   return toTexture(c, [24, 24]);
 }
 
-/** 胴体の窓列・ドア・ライン（fusGeo 側で UV 入替済み: x=胴体長さ / y=周回角。
- *  y=0 と y=512 が機体上面のシーム、y=256 が腹部。上下対称のデザインが必須） */
-export function makeFuselageTexture(top: number, bottom: number, accent: number, windowCount: number): THREE.CanvasTexture {
-  const [c, ctx] = makeCanvas(1024, 512);
-  const topHex = `#${top.toString(16).padStart(6, '0')}`;
-  const bottomHex = `#${bottom.toString(16).padStart(6, '0')}`;
-  const accentHex = `#${accent.toString(16).padStart(6, '0')}`;
+/** 胴体の窓列・ドア・ライン・社名（fusGeo 側で UV 入替済み: x=胴体長さ / y=周回角。
+ *  y=0 と y=H が機体上面のシーム、y=H/2 が腹部。上下対称のデザインが必須）
+ *  v2: 2048×1024 高解像 / 窓はフレーム+ガラス勾配+反射ストリーク / 双チートライン /
+ *  社名・登録記号文字 / ドアは窓を跨ぐ形状＋窓 / 腹部汚れうっすら */
+export function makeFuselageTexture(
+  top: number, bottom: number, accent: number, windowCount: number,
+  liveryName = 'SKYLINER', registration = 'JA00AI'
+): THREE.CanvasTexture {
+  const W = 2048, H = 1024, CY = H / 2; // CY = 腹部中心、0/H = 上面シーム
+  const [c, ctx] = makeCanvas(W, H);
+  const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
+  const topHex = hex(top), bottomHex = hex(bottom), accentHex = hex(accent);
 
-  // 塗装: 機体色で全体を塗ってから、腹部のみ下地色の帯（上下対称: y 196..316 ≈ ±40°）
+  // --- 基本塗装: 上面は機体色、腹部にアンチドラッグ色の帯（上下対称） ---
   ctx.fillStyle = topHex;
-  ctx.fillRect(0, 0, 1024, 512);
-  const g = ctx.createLinearGradient(0, 196, 0, 316);
+  ctx.fillRect(0, 0, W, H);
+  const band = 118; // 腹部帯の半幅
+  const g = ctx.createLinearGradient(0, CY - band, 0, CY + band);
   g.addColorStop(0, topHex);
-  g.addColorStop(0.18, bottomHex);
-  g.addColorStop(0.82, bottomHex);
+  g.addColorStop(0.16, bottomHex);
+  g.addColorStop(0.84, bottomHex);
   g.addColorStop(1, topHex);
   ctx.fillStyle = g;
-  ctx.fillRect(0, 196, 1024, 120);
+  ctx.fillRect(0, CY - band, W, band * 2);
+  // 腹部帯縁のすれ（汚れ 1px ライン）
+  ctx.fillStyle = 'rgba(30,40,52,0.35)';
+  ctx.fillRect(0, CY - band + 12, W, 3);
+  ctx.fillRect(0, CY + band - 15, W, 3);
 
-  // チートライン（窓列の上・両側面に 1 本ずつ、腹部中心から ±107px 対称）
+  // --- ダブルチートライン（窓列の上、対称 ±） ---
+  const cheatY = CY - 192; // 上側（下側は H-cheatY で対称）
   ctx.fillStyle = accentHex;
-  ctx.fillRect(0, 146, 1024, 5);
-  ctx.fillRect(0, 361, 1024, 5);
+  ctx.fillRect(0, cheatY, W, 11);
+  ctx.fillRect(0, H - cheatY - 11, W, 11);
+  ctx.fillStyle = 'rgba(255,255,255,0.75)';
+  ctx.fillRect(0, cheatY + 15, W, 4);
+  ctx.fillRect(0, H - cheatY - 19, W, 4);
 
-  // 旅客窓列（左右側面の中央下 47°、y=186 / 320）
-  ctx.fillStyle = '#101820';
-  const step = 900 / windowCount;
-  for (let i = 0; i < windowCount; i++) {
-    const x = 60 + i * step;
-    for (const y of [186, 320]) {
+  // --- 旅客窓列（フレーム + グラデガラス + 反射ストリーク） ---
+  const step = 1840 / windowCount;
+  const winW = Math.min(30, step - 12), winH = 34;
+  for (const rowY of [CY - 132, CY + 132 - winH]) {
+    for (let i = 0; i < windowCount; i++) {
+      const x = 300 + i * step;
+      // フレーム（アルミ光沢）
+      ctx.fillStyle = 'rgba(190,200,212,0.9)';
+      ctx.beginPath(); ctx.roundRect(x - 3, rowY - 3, winW + 6, winH + 6, 9); ctx.fill();
+      // ガラス
+      const wg = ctx.createLinearGradient(x, rowY, x, rowY + winH);
+      wg.addColorStop(0, '#1c2c3c');
+      wg.addColorStop(0.55, '#0a121b');
+      wg.addColorStop(1, '#131e2a');
+      ctx.fillStyle = wg;
+      ctx.beginPath(); ctx.roundRect(x, rowY, winW, winH, 7); ctx.fill();
+      // 斜め反射ストリーク
+      ctx.strokeStyle = 'rgba(168,205,235,0.5)';
+      ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.roundRect(x, y, Math.min(13, step - 4), 12, 4);
-      ctx.fill();
+      ctx.moveTo(x + 5, rowY + winH - 6);
+      ctx.lineTo(x + winW - 6, rowY + 5);
+      ctx.stroke();
     }
   }
-  // ドア（側面ごとに前後 2 箇所、窓列を跨ぐ縦長）
-  ctx.strokeStyle = 'rgba(20,30,40,0.55)';
-  ctx.lineWidth = 2.5;
-  for (const [dx, dy] of [[150, 152], [640, 152], [350, 300], [850, 300]]) {
-    ctx.strokeRect(dx, dy, 26, 60);
+
+  // --- ドア（前/後 × 両側、窓列を跨ぎ、上半分に乗客窓） ---
+  for (const [dx, side] of [[228, 0], [1290, 0], [700, 1], [1560, 1]] as const) {
+    const dy = side === 0 ? CY - 206 : CY + 206 - 130;
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.beginPath(); ctx.roundRect(dx, dy, 52, 130, 6); ctx.fill();
+    ctx.strokeStyle = 'rgba(24,36,48,0.75)';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.roundRect(dx, dy, 52, 130, 6); ctx.stroke();
+    // ドア窓
+    ctx.fillStyle = '#0c1622';
+    ctx.beginPath(); ctx.roundRect(dx + 9, dy + 12, 16, 20, 5); ctx.fill();
+    // ハンドル
+    ctx.fillStyle = 'rgba(20,30,40,0.8)';
+    ctx.fillRect(dx + 40, dy + 72, 6, 14);
   }
-  // コックピット窓（機首 u≈0 の両上側、腹部中心から ±160px 対称）
-  ctx.fillStyle = '#0c141c';
-  ctx.beginPath();
-  ctx.roundRect(8, 96, 88, 42, 10);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.roundRect(8, 416, 88, 42, 10);
-  ctx.fill();
+
+  // --- コックピット窓（機首、両側対称。4枚窓風の台形 + 柱） ---
+  for (const my of [CY - 336, CY + 336]) {
+    const dir = my < CY ? 1 : -1; // 上側は下がり気味、下側は上がり気味に台形化
+    ctx.fillStyle = '#0b141d';
+    ctx.beginPath();
+    ctx.moveTo(26, my);
+    ctx.lineTo(196, my + dir * 4);
+    ctx.lineTo(196, my + dir * 66);
+    ctx.lineTo(34, my + dir * 52);
+    ctx.closePath();
+    ctx.fill();
+    // 窓柱 3 本（機体色で塗り分け）
+    ctx.strokeStyle = topHex;
+    ctx.lineWidth = 7;
+    for (let k = 0; k < 3; k++) {
+      const fx = 62 + k * 44;
+      ctx.beginPath();
+      ctx.moveTo(fx, my + dir * (2 + k * 4));
+      ctx.lineTo(fx + 8, my + dir * (58 + k * 2));
+      ctx.stroke();
+    }
+    // 縁の光沢
+    ctx.strokeStyle = 'rgba(150,180,210,0.55)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(26, my); ctx.lineTo(196, my + dir * 4);
+    ctx.stroke();
+  }
+
+  // --- 社名（前部・両側） ---
+  ctx.fillStyle = bottomHex;
+  ctx.font = 'italic bold 92px "Helvetica Neue", Arial, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(liveryName, 430, CY - 232);
+  ctx.save(); ctx.translate(W, 0); ctx.scale(-1, 1);
+  ctx.fillText(liveryName, 430, H - (CY - 232) - 60);
+  ctx.restore();
+  // --- 登録記号（後部・両側） ---
+  ctx.font = 'bold 58px "Helvetica Neue", Arial, sans-serif';
+  ctx.fillStyle = 'rgba(40,52,64,0.95)';
+  ctx.fillText(registration, 1660, CY - 236);
+  ctx.save(); ctx.translate(W, 0); ctx.scale(-1, 1);
+  ctx.fillText(registration, 1660, H - (CY - 236) - 42);
+  ctx.restore();
+  // --- 貨物ハッチ輪郭（腹部後部） ---
+  ctx.strokeStyle = 'rgba(28,40,52,0.5)';
+  ctx.lineWidth = 3;
+  for (const hx of [560, 1020, 1460]) {
+    ctx.beginPath(); ctx.roundRect(hx, CY + 46, 96, 26, 8); ctx.stroke();
+    ctx.beginPath(); ctx.roundRect(hx, CY - 72, 96, 26, 8); ctx.stroke();
+  }
+  // --- ノーズシーム（ラドーム境）+ ピトー小印 ---
+  ctx.strokeStyle = 'rgba(50,60,72,0.8)';
+  ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(212, 0); ctx.lineTo(212, H); ctx.stroke();
+  ctx.fillStyle = 'rgba(40,50,60,0.9)';
+  for (const py of [CY - 96, CY + 96]) ctx.fillRect(236, py, 16, 7);
 
   return toTexture(c);
 }
+
+/** 垂直尾翼サイドの liveried テクスチャ（u=弦方向 前縁→後縁 / v=根本→先端） */
+export function makeTailTexture(top: number, bottom: number, accent: number, name: string): THREE.CanvasTexture {
+  const W = 512, H = 384;
+  const [c, ctx] = makeCanvas(W, H);
+  const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
+  // 根本→先端 で 機体色→ボトム色のグラデ
+  const g = ctx.createLinearGradient(0, H, 0, 0);
+  g.addColorStop(0, hex(top));
+  g.addColorStop(0.34, hex(top));
+  g.addColorStop(1, hex(bottom));
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  // アクセントの斜めスウッシュ（前縁下地从）
+  ctx.fillStyle = hex(accent);
+  ctx.beginPath();
+  ctx.moveTo(0, H * 0.62);
+  ctx.quadraticCurveTo(W * 0.55, H * 0.66, W * 0.78, H * 0.06);
+  ctx.lineTo(W, H * 0.06);
+  ctx.quadraticCurveTo(W * 0.72, H * 0.9, 0, H * 0.82);
+  ctx.closePath();
+  ctx.fill();
+  // エンブレム: 白丸 + アクセントの翼印
+  ctx.fillStyle = 'rgba(250,252,255,0.96)';
+  ctx.beginPath(); ctx.arc(W * 0.5, H * 0.34, 64, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = hex(accent);
+  ctx.beginPath();
+  ctx.moveTo(W * 0.5 - 40, H * 0.34 + 14);
+  ctx.quadraticCurveTo(W * 0.5, H * 0.34 - 44, W * 0.5 + 42, H * 0.34 + 6);
+  ctx.quadraticCurveTo(W * 0.5, H * 0.34 - 16, W * 0.5 - 40, H * 0.34 + 14);
+  ctx.fill();
+  void name; // 尾翼は図案のみ（両側ミラーに写るため文字は置かない）
+  return toTexture(c);
+}
+
+/** エンジンファン面 v2（放射ブレード + スワール入りハブ + 外周影） */
+export function makeFanTexture(): THREE.CanvasTexture {
+  const S = 256;
+  const [c, ctx] = makeCanvas(S, S);
+  ctx.fillStyle = '#0e1216';
+  ctx.fillRect(0, 0, S, S);
+  ctx.translate(S / 2, S / 2);
+  // ブレード 30 枚（内径影 → 外径光、ねじれ勾配）
+  for (let i = 0; i < 30; i++) {
+    ctx.rotate((Math.PI * 2) / 30);
+    const g = ctx.createLinearGradient(0, 0, 122, 0);
+    g.addColorStop(0, '#3a434d');
+    g.addColorStop(0.35, '#8d99a5');
+    g.addColorStop(1, '#48525d');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(18, -5);
+    ctx.lineTo(124, -17);
+    ctx.lineTo(124, 4);
+    ctx.lineTo(18, 6);
+    ctx.closePath();
+    ctx.fill();
+    // ブレード陰
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.beginPath();
+    ctx.moveTo(18, 6); ctx.lineTo(124, 4); ctx.lineTo(124, 9); ctx.lineTo(18, 9);
+    ctx.closePath(); ctx.fill();
+  }
+  // ハブ: スワール（白渦 3 本）
+  const hub = ctx.createRadialGradient(0, 0, 2, 0, 0, 26);
+  hub.addColorStop(0, '#c2ccd4');
+  hub.addColorStop(0.75, '#7c8790');
+  hub.addColorStop(1, '#2c343c');
+  ctx.fillStyle = hub;
+  ctx.beginPath(); ctx.arc(0, 0, 26, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(24,28,32,0.9)';
+  ctx.lineWidth = 4;
+  for (let k = 0; k < 3; k++) {
+    ctx.beginPath();
+    for (let a = 0; a <= Math.PI * 1.5; a += 0.08) {
+      const r = 4 + a * 4.4;
+      const x = Math.cos(a + (k * Math.PI * 2) / 3) * r;
+      const y = Math.sin(a + (k * Math.PI * 2) / 3) * r;
+      a === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  return toTexture(c);
+}
+
 
 /**
  * 胴体Skin のパネルライン（継ぎ目＋リベット）の normal / roughness マップ。
@@ -337,35 +511,6 @@ export function makeBuildingTexture(): THREE.CanvasTexture {
     }
   }
   return toTexture(c, [2, 3]);
-}
-
-/** エンジンファン面（放射状ブレード） */
-export function makeFanTexture(): THREE.CanvasTexture {
-  const [c, ctx] = makeCanvas(256, 256);
-  ctx.fillStyle = '#22282e';
-  ctx.fillRect(0, 0, 256, 256);
-  ctx.translate(128, 128);
-  for (let i = 0; i < 28; i++) {
-    ctx.rotate((Math.PI * 2) / 28);
-    const g = ctx.createLinearGradient(0, 0, 110, 0);
-    g.addColorStop(0, '#8d99a5');
-    g.addColorStop(1, '#4a5560');
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.moveTo(0, -6);
-    ctx.lineTo(112, -16);
-    ctx.lineTo(112, 4);
-    ctx.closePath();
-    ctx.fill();
-  }
-  const hub = ctx.createRadialGradient(0, 0, 4, 0, 0, 34);
-  hub.addColorStop(0, '#aab4bd');
-  hub.addColorStop(1, '#3a434c');
-  ctx.fillStyle = hub;
-  ctx.beginPath();
-  ctx.arc(0, 0, 34, 0, Math.PI * 2);
-  ctx.fill();
-  return toTexture(c);
 }
 
 /** 雲スプライト（下影つきパフィー） */

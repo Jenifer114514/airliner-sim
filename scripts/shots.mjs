@@ -16,7 +16,7 @@ await delay(700);
 const SHOT = root + 'screenshots/';
 await mkdir(SHOT, { recursive: true });
 
-const browser = await chromium.launch({
+const browser = await chromium.launch({ executablePath: process.env.CHROME_BIN || undefined,
   headless: true,
   args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']
 });
