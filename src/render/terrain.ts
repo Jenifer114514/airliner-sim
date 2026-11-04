@@ -261,11 +261,23 @@ vec3 terrainColorV(vec3 camPos) {
   vec3 cSea = vec3(0.420, 0.494, 0.408);
   vec3 cAirfield = vec3(0.337, 0.451, 0.263);
   vec3 col;
+  float distC = length(camPos - vec3(vTXZ.x, vTH, vTXZ.y));
   float af = airfieldMaskV(vTXZ);
   if (h < 2.0) {
     col = mix(cSea, cSand, smoothstep(-3.0, 2.0, h));
   } else {
-    col = mix(cGrass, cForest, clamp((h - 10.0) / 240.0, 0.0, 1.0));
+    float forestT = clamp((h - 10.0) / 240.0, 0.0, 1.0);
+    col = mix(cGrass, cForest, forestT);
+    // ===== 中~遠景の地面もみ上げ（のっぺり防止: ~930m 色调 / ~170m 斑 / 樹冠 / ~51m 粒）=====
+    float nA = vnoise(vTXZ * 0.00108 + vec2(21.7, 5.3));
+    col *= 0.84 + 0.32 * nA;
+    float nB = vnoise(vTXZ * 0.0058 + vec2(3.3, 12.1));
+    col = mix(col, col * vec3(0.78, 0.84, 0.70), 0.55 * smoothstep(0.40, 0.74, nB));
+    if (distC < 9000.0) {
+      float can = smoothstep(0.52, 0.80, vnoise(vTXZ * 0.0088 + vec2(1.1, 4.4))) * forestT;
+      col = mix(col, col * 0.70, can * 0.75);
+      col *= 0.962 + 0.076 * vnoise(vTXZ * 0.0195 + vec2(7.7, 1.3));
+    }
     float rock = clamp((slope - 0.22) / 0.40, 0.0, 1.0) * 0.9 + clamp((h - 620.0) / 520.0, 0.0, 1.0) * 0.8;
     col = mix(col, cRock, clamp(rock, 0.0, 1.0));
     // 雪は稜線級（1750m 起）のみ・北向き斜面で残る。ゆらぎでツルテにしない
@@ -278,25 +290,40 @@ vec3 terrainColorV(vec3 camPos) {
     float lowband = (1.0 - smoothstep(300.0, 430.0, h)) * smoothstep(3.0, 10.0, h);
     float w = flatness * lowband * (1.0 - af) * nearQ;
     if (w > 0.01) {
-      vec2 cell = floor(vTXZ / 600.0);
-      vec2 fr = fract(vTXZ / 600.0);
-      float ch = h2i(int(cell.x), int(cell.y));
-      vec3 crop = ch < 0.25 ? vec3(0.580, 0.498, 0.294)
-                : ch < 0.50 ? vec3(0.373, 0.459, 0.235)
-                : ch < 0.75 ? vec3(0.439, 0.357, 0.243)
-                :             vec3(0.522, 0.541, 0.337);
+      vec2 cell0 = floor(vTXZ / 600.0);
+      vec2 fr0 = fract(vTXZ / 600.0);
+      float ch0 = h2i(int(cell0.x), int(cell0.y));
+      vec2 cell = cell0; vec2 fr = fr0; float ch = ch0;
+      if (ch0 > 0.44) {  // 約半数の区画を 300m の四小区へ分割（区画を細かく見せる）
+        vec2 sub = floor(fr0 * 2.0);
+        cell = cell0 * 2.0 + sub;
+        fr = fract(fr0 * 2.0);
+        ch = h2i(int(cell.x), int(cell.y));
+      }
+      vec3 crop = ch < 0.20 ? vec3(0.580, 0.498, 0.294)
+                : ch < 0.38 ? vec3(0.373, 0.459, 0.235)
+                : ch < 0.55 ? vec3(0.439, 0.357, 0.243)
+                : ch < 0.72 ? vec3(0.522, 0.541, 0.337)
+                : ch < 0.86 ? vec3(0.470, 0.420, 0.286)
+                :             vec3(0.612, 0.562, 0.373);
+      crop *= 0.83 + 0.32 * h2i(int(cell.x) * 5 + 13, int(cell.y) * 7 - 5);
+      crop *= 0.94 + 0.09 * fr.x + 0.05 * vnoise(vTXZ * 0.021 + vec2(2.3, 9.8));
       float hedge = min(step(fr.x, 0.045) + step(fr.y, 0.045), 1.0);
-      crop *= 1.0 - 0.35 * hedge;
+      crop = mix(crop * (1.0 - 0.30 * hedge), vec3(0.155, 0.235, 0.125), hedge * 0.55);
       col = mix(col, crop, w * 0.72);
+    }
+    // 砂浜〜低地: 中距離でもらえる粒（潮だまり風の明暗）
+    if (h < 34.0) {
+      float bw = 1.0 - smoothstep(10.0, 34.0, h);
+      col *= mix(1.0, 0.90 + 0.20 * vnoise(vTXZ * 0.0130 + vec2(6.1, 3.3)), bw * nearQ);
     }
   }
   // ===== マイクロ表面（近接地のざらつき: 草むら・砂粒・作物の畝）=====
-  float distC = length(camPos - vec3(vTXZ.x, vTH, vTXZ.y));
   float microQ = 1.0 - smoothstep(1100.0, 2900.0, distC);
   if (microQ > 0.012) {
     float g1 = vnoise(vTXZ * 0.34 + vec2(4.1, 9.3));
     float g2 = vnoise(vTXZ * 0.90 + vec2(1.7, 6.2));
-    col *= mix(1.0, (0.915 + 0.135 * g1) * (0.955 + 0.075 * g2), microQ);
+    col *= mix(1.0, (0.885 + 0.200 * g1) * (0.930 + 0.130 * g2), microQ);
     // 農地の畝（作物セル内 19m 周期ストライプ、1.5km 外はエイリアス防止でフェード）
     float stripQ = (1.0 - smoothstep(700.0, 1900.0, distC)) * (1.0 - smoothstep(280.0, 430.0, h));
     if (stripQ > 0.02 && h > 6.0 && slope < 0.09 && af < 0.5) {
@@ -311,6 +338,13 @@ vec3 terrainColorV(vec3 camPos) {
   }
   // 飛行場平坦帯: 海面(=砂)ブランチより前に一律上書き（h=0 は砂帯に該当するため）
   col = mix(col, cAirfield, af);
+  if (af > 0.02) {
+    float aq = af * (0.55 + 0.45 * microQ);
+    col *= mix(1.0, 0.88 + 0.26 * vnoise(vTXZ * 0.28 + vec2(5.7, 2.9)), aq);
+    col *= mix(1.0, 0.955 + 0.09 * vnoise(vTXZ * 0.062 + vec2(1.9, 8.8)) * 2.0 - 0.09, aq * 0.9);
+    float mowQ = aq * (1.0 - smoothstep(2600.0, 4600.0, distC));
+    col *= mix(1.0, 0.965 + 0.07 * sin(vTXZ.y * 0.2618), mowQ);
+  }
   return col;
 }
 `;
