@@ -183,12 +183,12 @@ node scripts/shots.mjs          # スクリーンショット検証
 
 **ルートA: フルリポジトリ + Actions（推奨・更新自動化）**
 1. github.com/new で `airliner-sim`（Public）作成
-2. `deploy/airliner-sim-repo.zip`（1.6MB・91ファイル、node_modules/web 除く全ソース）を「uploading an existing file」でドラッグ → commit。または `git init` 済みなので `git remote add origin … && git push -u origin main`
+2. `deploy/airliner-sim-repo.zip` を**解凍した中身ごと**「uploading an existing file」でドラッグ（zip そのままは解凍されない。1.6MB・91ファイル、node_modules/web 除く全ソース）。または `git init` 済みなので `git remote add origin … && git push -u origin main`
 3. Settings → Pages → **Source: GitHub Actions**（ブランチ選択式のままにしない）
 4. Actions タブの "Deploy to GitHub Pages" 成功後、上記URLで公開済み（ビルド約1〜2分）
 
 **ルートB: 静的zipのみ（即公開・更新は手動）**
-1. 新規リポジトリに `deploy/airliner-sim-static.zip` を解凍した 4ファイル（`index.html` / `assets/` / `.nojekyll`）を upload
+1. 新規リポジトリに `deploy/airliner-sim-static.zip` を解凍した 4ファイル（`index.html` / `assets/` / `.nojekyll`）を選択して upload
 2. Settings → Pages → Source: `Deploy from a branch` → `main` / `/ (root)` → Save → 約1分で `https://<user>.github.io/<repo>/`
 
 注意点: `vite.config` の `base:'./'` によりサブパス `/repo/` で動作確認済み（絶対パス不要）。`web/` 直下に **CNAME ファイルを残さない**（サロゲート独自ドメイン指定と誤読される。surge 実験時の残骸は削除済み）。
