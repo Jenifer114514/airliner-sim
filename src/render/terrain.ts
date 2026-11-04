@@ -290,6 +290,25 @@ vec3 terrainColorV(vec3 camPos) {
       col = mix(col, crop, w * 0.72);
     }
   }
+  // ===== マイクロ表面（近接地のざらつき: 草むら・砂粒・作物の畝）=====
+  float distC = length(camPos - vec3(vTXZ.x, vTH, vTXZ.y));
+  float microQ = 1.0 - smoothstep(1100.0, 2900.0, distC);
+  if (microQ > 0.012) {
+    float g1 = vnoise(vTXZ * 0.34 + vec2(4.1, 9.3));
+    float g2 = vnoise(vTXZ * 0.90 + vec2(1.7, 6.2));
+    col *= mix(1.0, (0.915 + 0.135 * g1) * (0.955 + 0.075 * g2), microQ);
+    // 農地の畝（作物セル内 19m 周期ストライプ、1.5km 外はエイリアス防止でフェード）
+    float stripQ = (1.0 - smoothstep(700.0, 1900.0, distC)) * (1.0 - smoothstep(280.0, 430.0, h));
+    if (stripQ > 0.02 && h > 6.0 && slope < 0.09 && af < 0.5) {
+      vec2 c2 = floor(vTXZ / 600.0);
+      float rs = h2i(int(c2.x) * 7 + 3, int(c2.y) * 13 + 5);
+      if (rs > 0.18 && rs < 0.82) {
+        float ax = rs < 0.5 ? vTXZ.x : vTXZ.y;
+        float stripe = 0.5 + 0.5 * sin(ax * 0.3307 + rs * 41.0);
+        col *= mix(1.0, 0.93 + 0.14 * stripe, stripQ);
+      }
+    }
+  }
   // 飛行場平坦帯: 海面(=砂)ブランチより前に一律上書き（h=0 は砂帯に該当するため）
   col = mix(col, cAirfield, af);
   return col;
@@ -342,7 +361,7 @@ function buildLevel(cfg: LevelCfg, nearSeg: number): Level {
       .replace('#include <clipping_planes_fragment>',
                '#include <clipping_planes_fragment>\nif (vTH < -3.0) discard;')
       .replace('#include <fog_fragment>',
-               '#include <fog_fragment>\n#ifdef USE_FOG\n  gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, smoothstep(14000.0, 23000.0, vFogDepth));\n#endif');
+               '#include <fog_fragment>\n#ifdef USE_FOG\n  float haze = smoothstep(4500.0, 15000.0, vFogDepth) * 0.45 + smoothstep(13000.0, 24000.0, vFogDepth) * 0.55;\n  gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, min(1.0, haze));\n#endif');
   };
   mat.customProgramCacheKey = () => 'terrain-v2-' + cfg.size;
 

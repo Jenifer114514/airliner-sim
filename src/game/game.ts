@@ -86,6 +86,8 @@ export class Game {
   private bloomPass: UnrealBloomPass | null = null;
   private cityGroup: THREE.Group | null = null;
   private airportGroups: THREE.Group[] = [];
+  /** 地上高度リファレンス（機体真下の楕円ブラブ: 接地直後の高さ判断用） */
+  private groundBlob: THREE.Mesh | null = null;
 
   // メニュー用 3D プレビュー
   private previewScene: THREE.Scene;
@@ -117,6 +119,29 @@ export class Game {
 
     // ===== bloom composer（最終アウトプットのみ経路。プレビューは素通し） =====
     if (this.quality.preset.bloom) this.enableBloom();
+
+    // ===== 高度基準ブラブ（ソフト影楕円。時刻/影の有無に関係なく常に弱く出す） =====
+    {
+      const bc = document.createElement('canvas');
+      bc.width = bc.height = 128;
+      const bx = bc.getContext('2d')!;
+      const bg = bx.createRadialGradient(64, 64, 6, 64, 64, 62);
+      bg.addColorStop(0, 'rgba(0,0,0,0.85)');
+      bg.addColorStop(0.6, 'rgba(0,0,0,0.38)');
+      bg.addColorStop(1, 'rgba(0,0,0,0)');
+      bx.fillStyle = bg;
+      bx.fillRect(0, 0, 128, 128);
+      const btex = new THREE.CanvasTexture(bc);
+      const blob = new THREE.Mesh(
+        new THREE.CircleGeometry(1, 20),
+        new THREE.MeshBasicMaterial({ map: btex, transparent: true, opacity: 0, depthWrite: false, fog: true })
+      );
+      blob.rotation.x = -Math.PI / 2;
+      blob.renderOrder = 2;
+      blob.visible = false;
+      scene.add(blob);
+      this.groundBlob = blob;
+    }
 
     // ===== メニュー用プレビューシーン =====
     this.previewScene = new THREE.Scene();
@@ -621,6 +646,20 @@ export class Game {
     if (fog) {
       // 対地高度が高いほど遠くを見通せる（遠近の階層を保つための緩い係数）
       const alt = Math.max(0, pos.y - terrainHeight(pos.x, pos.z));
+      // 高度基準ブラブ: AGL>360m で消え、低いほど濃く小さく（接地直感は影より輪郭）
+      if (this.groundBlob) {
+        const gb = this.groundBlob;
+        if (alt < 360) {
+          const k = 1 - alt / 360;
+          const gy = Math.max(terrainHeight(pos.x, pos.z), WORLD.SEA_LEVEL) + 0.5;
+          gb.position.set(pos.x, gy, pos.z);
+          const span = this.playerSpec.wingspan;
+          const r = span * 0.42 + alt * 0.11;
+          gb.scale.set(r, r * 0.86, 1);
+          (gb.material as THREE.MeshBasicMaterial).opacity = 0.10 + 0.26 * k * k;
+          gb.visible = true;
+        } else gb.visible = false;
+      }
       const a = Math.min(alt / 4000, 2.2); // 0..2.2
       fog.near = this.fogBaseNear * (1 + 0.7 * a);
       fog.far = this.fogBaseFar * (1 + 0.55 * a);

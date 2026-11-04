@@ -11,8 +11,8 @@ export const WORLD = {
   /** 空港（原点）周辺の平坦半径 [m] */
   FLAT_RADIUS: 3200,
   /** フォグ開始/終了 [m] */
-  FOG_NEAR: 6000,
-  FOG_FAR: 42000
+  FOG_NEAR: 2600,
+  FOG_FAR: 34000
 };
 
 export const CAMERA = {
