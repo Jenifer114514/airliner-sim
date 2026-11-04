@@ -279,17 +279,19 @@ export function buildAirliner(spec: AirlinerSpec, options: BuildOptions = {}): A
   fin.position.set(0, R * 0.55, -L * 0.36);
   group.add(fin);
 
-  const hStabSpan = spec.wingspan * 0.32;
+  // 水平尾翼: 実機比（全幅の約 5 割）に縮小・下方後退配置。
+  // 旧値（64%/中央より上）は後方視点で「主翼が 2 枚」に見える原因になっていた
+  const hStabSpan = spec.wingspan * 0.25;
   const hStabL = makeWingSurface(
-    spec.tailRootChord * 0.62, spec.tailRootChord * 0.28, hStabSpan,
-    spec.sweep + 0.08, 0.06, matWingBase, low, -1
+    spec.tailRootChord * 0.52, spec.tailRootChord * 0.22, hStabSpan,
+    spec.sweep + 0.14, 0.035, matWingBase, low, -1
   );
-  hStabL.position.set(0, R * 0.55, -L * 0.38);
+  hStabL.position.set(0, R * 0.12, -L * 0.415);
   const hStabR = makeWingSurface(
-    spec.tailRootChord * 0.62, spec.tailRootChord * 0.28, hStabSpan,
-    spec.sweep + 0.08, 0.06, matWingBase, low, 1
+    spec.tailRootChord * 0.52, spec.tailRootChord * 0.22, hStabSpan,
+    spec.sweep + 0.14, 0.035, matWingBase, low, 1
   );
-  hStabR.position.set(0, R * 0.55, -L * 0.38);
+  hStabR.position.set(0, R * 0.12, -L * 0.415);
   group.add(hStabL, hStabR);
   // 尾翼基部フェアリング（胴体 ⇄ 水平尾翼の段差）
   if (!low) {
@@ -298,7 +300,8 @@ export function buildAirliner(spec: AirlinerSpec, options: BuildOptions = {}): A
       matWingBase
     );
     tb.rotation.x = Math.PI / 2;
-    tb.position.set(0, R * 0.62, -L * 0.34);
+    tb.position.set(0, R * 0.22, -L * 0.40);
+    tb.scale.set(1.0, 0.55, 1.0);
     group.add(tb);
   }
 
