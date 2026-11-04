@@ -1,0 +1,48 @@
+/** 世界・カメラ・品質の定数（SI 単位: m, s, rad） */
+export const SUN_DIR = { x: 0.55, y: 0.62, z: 0.28 };
+
+export const WORLD = {
+  /** 地形メッシュ一辺 [m] */
+  TERRAIN_SIZE: 52000,
+  /** 地形分割数 */
+  TERRAIN_SEGMENTS: 192,
+  /** 海面高さ [m] */
+  SEA_LEVEL: -3,
+  /** 空港（原点）周辺の平坦半径 [m] */
+  FLAT_RADIUS: 3200,
+  /** フォグ開始/終了 [m] */
+  FOG_NEAR: 6000,
+  FOG_FAR: 42000
+};
+
+export const CAMERA = {
+  FOV: 60,
+  FOV_COCKPIT: 68,
+  /** 視点切替の補間時間 [s] */
+  BLEND_TIME: 0.65,
+  /** 観察カメラの自動旋回速度 [rad/s] */
+  ORBIT_SPEED: 0.12
+};
+
+/** 画質プリセット */
+export type QualityLevel = 'ultra' | 'high' | 'medium' | 'low';
+export interface QualityPreset {
+  pixelRatio: number;
+  shadows: boolean;
+  shadowMapSize: number;
+  treeCount: number;
+  cityCount: number;
+  cloudCount: number;
+  /** 地形クリップマップ: 近景パッチの分割数（頂点数の平方） */
+  terrainNearSeg: number;
+  /** 中景パッチ（8km）を使うか */
+  terrainMid: boolean;
+  /** 太陽影のカバー範囲 [m]（プレイヤー中心） */
+  shadowRange: number;
+}
+export const QUALITY: Record<QualityLevel, QualityPreset> = {
+  ultra:  { pixelRatio: 3.0, shadows: true,  shadowMapSize: 4096, treeCount: 1400, cityCount: 420, cloudCount: 36, terrainNearSeg: 200, terrainMid: true,  shadowRange: 2600 },
+  high:   { pixelRatio: 2.0, shadows: true,  shadowMapSize: 2048, treeCount: 1100, cityCount: 320, cloudCount: 30, terrainNearSeg: 160, terrainMid: true,  shadowRange: 2600 },
+  medium: { pixelRatio: 1.5, shadows: true,  shadowMapSize: 1024, treeCount: 650,  cityCount: 220, cloudCount: 22, terrainNearSeg: 128, terrainMid: true,  shadowRange: 2000 },
+  low:    { pixelRatio: 1.0, shadows: false, shadowMapSize: 512,  treeCount: 320,  cityCount: 130, cloudCount: 14, terrainNearSeg: 96,  terrainMid: false, shadowRange: 1400 }
+};

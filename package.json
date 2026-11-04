@@ -1,0 +1,25 @@
+{
+  "name": "airliner-sim",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "iPhone Safari向け 高グラフィック品質 3D旅客機フライトシミュレーター",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "vite build",
+    "serve": "node scripts/serve.mjs",
+    "shots": "node scripts/shots.mjs",
+    "test:browser": "node scripts/browser-smoke.mjs",
+    "single": "npm run build && node scripts/inline-single.mjs"
+  },
+  "dependencies": {
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "@types/three": "0.170.0",
+    "playwright-core": "^1.64.1",
+    "typescript": "5.6.3",
+    "vite": "5.4.11"
+  }
+}

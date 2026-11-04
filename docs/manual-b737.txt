@@ -1,0 +1,109 @@
+===== PAGE 1 =====
+JAL/JTA BOEING 737-700 FLIGHT CREW OPERATING MANUAL (FCOM) & SOP 本マニュアルは、日本航空（JAL）および日本トランスオーシャン航空（JTA）におけるBoeing 737-700型機の標準運航手順（SOP）を規定する。
+PF（Pilot Flying）およびPM（Pilot Monitoring）は、本規程に定めるコールアウト、指差し呼称、および操作手順を厳格に遵守すること。
+曖昧な操作や推測に基づくシステム介入は重大なインシデントに直結する。
+ 📌 第1章：機体性能限界およびシステム基本仕様（B737-700） 本機の運用限界を以下に定める。
+IF環境下においてもこの数値を絶対的なリミットとして扱うこと。
+ 1.1 基本重量・高度限界 ● 最大離陸重量 (MTOW): 154,500 lbs ● 最大着陸重量 (MLW): 128,000 lbs ● 最大運用高度: 41,000 ft ● 最大運用速度 (Vmo/Mmo): 340 KIAS / Mach 0.82 1.2 フラップ制限速度 (V_FE) および実務推奨速度 フラップの展開は、空力的負荷の軽減と乗客の快適性（Buffet防止）のため、限界速度（V_FE）ではなく**「実務推奨展開速度」**を下回ってから実施すること。
+ Flaps 指示位置 V_FE (限界速度) 実務推奨展開速度 用途・備考 1 LE Slats Ext 250 KIAS 230 KIAS アーリー・デセラレーション用 2 TE Flaps Ext 250 KIAS 220 KIAS 通常使用せず（IF内予備） 5 TE Flaps Ext 250 KIAS 200 KIAS 離陸標準・アプローチ初期 10 TE Flaps Ext 210 KIAS 190 KIAS アプローチ中期 15 TE Flaps Ext 200 KIAS 180 KIAS 離陸(重量大)・アプローチ中期 25 TE Flaps Ext 190 KIAS 170 KIAS アプローチ後期 30 TE Flaps Ext 175 KIAS 150 KIAS 通常着陸標準形態 40 TE Flaps Ext 162 KIAS 140 KIAS 短滑走路・背風10kt超・汚染滑走路 ⚙ 第2章：出発準備手順（Cockpit Flow, FMC/CDU, MCP） 2.1 オーバーヘッドパネル・セットアップフロー (PM)
+===== PAGE 2 =====
+PF/PM入室後、PMは以下の順序でオーバーヘッドパネルを確実にセットし、システムを構築する。
+ 1. IRS Mode Selectors: NAV にセットし、アライメントを開始する。
+ 2. Fuel Pumps: 搭載燃料に応じ、必要なポンプを ON。
+ 3. Window Heat: 全てのスイッチを ON。
+ 4. Electric Hydraulic Pumps (A/B): ON。
+システム圧力が上昇したことを確認する。
+ 5. APU Bleed: ON。
+ ⚠
+
+【DUAL BLEED CAUTION】: APU BleedがONの状態で、Engine Bleed Valveが開いている場合、「DUAL BLEED」ライトが点灯する。
+この状態でエンジン推力をアイドル以上に増加させると、APUへの逆流が生じ致命的な損傷を招く。
+必ずアイドル推力を厳守すること。
+ 2.2 FMC / CDU セットアップフロー (PF/PM) FMCへのデータ入力は「IDENT」ページから順次実行する。
+ 1. IDENT: 機種（737-700）およびエンジンレーティング、Nav Dataの有効期限を確認。
+ 2. POS INIT: 現在位置を入力し、IRSアライメントを完了させる。
+ 3. ROUTE: 出発地、目的地、SID/STAR、およびエンルートのウェイポイントを入力・実行(EXEC)する。
+ 4. PERF INIT: ZFW、FUEL、Reserve燃料を入力し、Cruise Altitudeをセットする。
+ 5. N1 LIMIT: OAT（外気温度）を入力し、必要なDerate（減推力）を選択する。
+ 6. TAKEOFF REF: Flaps設定を入力し、V1, VR, V2を算出・確認する。
+CGを入力し、Trim値を決定する。
+ 2.3 MCP (Mode Control Panel) 初期設定手順 ● F/D (Flight Director): PF側を先にONにし、続いてPM側をONにする（Master表示がPF側になることを確認）。
+ ● COURSE: 出発滑走路の磁方位（Inbound Course）をPF/PM両側にセットする。
+ ● IAS/MACH: FMCで算出された V2速度 をセットする。
+ ● HEADING: 出発滑走路の磁方位（Runway Heading）をセットする。
+ ● ALTITUDE: 管制承認された初期上昇高度（Initial Climb Altitude）をセットする。
+ 2.4 B737-700 IF重量別離陸性能データ表 ※IF環境下において、重量に応じた推力（Derate）およびトリム設定を厳格に適用すること。
+ Load % 離陸Flap Target N1 V1 / VR / V2 (KIAS) 推奨ピッチトリム (% / Units) 10-20% Flaps 5 85.0% 125 / 125 / 135 15% (約 4.0 Units) 30-40% Flaps 5 88.0% 130 / 130 / 140 18% (約 4.5 Units) 50-60% Flaps 15 92.0% 135 / 135 / 145 20% (約 5.0 Units) 70-80% Flaps 15 96.0% 142 / 142 / 152 22% (約 5.5 Units) 90%以上 Flaps 15 98.0% 148 / 148 / 158 25% (約 6.0 Units) 🔥 第3章：エンジン始動および地上滑走手順 3.1 B737 厳格エンジン始動シーケンス クリアランス受領後、PMはオーバーヘッドパネルにて始動操作を行う。
+ ● PM: 「Engine Start Switch Number 2, GRD.」 👉 (Start SwitchをGRDへセット) ● PM: 「N2 20%.」 👉 (N2回転数が20%、またはMaximum Motoringに達したことを確認しコー
+===== PAGE 3 =====
+ル) ● PF: 「Engine Start Lever, IDLE.」 👉 (Cutoff LeverをIDLEへ引き上げる) ● PM: 「Fuel Flow, EGT increasing.」 👉 (燃料流量の増加と排気温度の上昇をクロスチェック) ● PM: 「Starter Cutout.」 👉 (N2が56%に達し、Start Switchが自動でAUTO/OFFへ復帰したことを確認) Engine 2安定後、Engine 1について全く同じプロシージャを反復する。
+ 3.2 タキシング (地上滑走) と相互確認 タキシングは機体の健全性を確認する最終フェーズである。
+以下の操作と相互確認を厳密に行うこと。
+ 1. ブレイクアウェイと速度制限: ○ 動き出し（ブレイクアウェイ）には N1 25%〜30% を使用し、動き出したら直ちにアイドル推力へ戻す。
+ ○ 直線路では最大20 kts、旋回時は10 kts未満を厳守すること。
+ 2. ブレーキチェック (Brake Check): ○ 滑走開始直後、PFがフットブレーキを軽く踏んで制動力を確認する。
+ ○ PF: 「Brake Check.」 ○ PM: 計器上のブレーキ圧力が正常に作動し、異常がないことを確認し、**「Checked.」**と応答。
+ 3. フライトコントロールチェック (Flight Controls Check): ○ 誘導路上で、PFは操縦桿とラダーペダルをフルストロークまで確実に動かし、PMは下部DU（Display Unit）のSYSページにて舵面インジケーターのフル作動と中立復帰を目視確認する。
+ ○ PF: (操縦桿を全開に引く) 👉 PM: 「Full Up.」 ○ PF: (操縦桿を全開に押す) 👉 PM: 「Full Down, Neutral.」 ○ PF: (操縦桿を左右に倒す) 👉 PM: 「Full Left, Full Right, Neutral.」 ○ PF: (ラダーを踏み込む) 👉 PM: 「Rudder Full Left, Full Right, Neutral.」 🚀 第4章：離陸・上昇・巡航・降下手順 4.1 離陸手順と標準コールアウト 滑走路上で推力をN1 40%で安定させた後、TO/GAスイッチ（IFではMCP N1または推力レバー前進）を作動させる。
+ ● PF: 「Takeoff.」 ● PM: 「Thrust Normal.」 (ターゲットN1に到達・安定したことを確認) ● PM: 「80 KNOTS.」 👉 (自身の速度計を指差し) ● PF: 「Checked.」 (両者の速度計の同調を確認) ● PM: 「V1.」 (これ以降、機体喪失レベルの致命的故障以外での離陸中止は禁止) ● PM: 「ROTATE.」 👉 (毎秒2〜2.5度のレートでピッチを15度へ引き上げる) ● PM: 「POSITIVE RATE.」 👉 (VSIと高度計の上昇を確認) ● PF: 「Gear Up.」 👉 (ランディングギアレバーをUP位置へ) ● PM: 「Gear Up.」 (ギアが格納されたことを確認) 4.2 オートパイロット (A/P) 運用タイミング基準 PFは各フェーズにおいて、以下の基準に従いA/PおよびMCPモードをエンゲージする。
+ ● 高度 400ft AGL 通過: LNAV または HDG SEL をエンゲージし、横方向の航法を確立する。
+ ● 高度 1,000ft AGL 通過: CMD A (Auto Pilot ON) をエンゲージし、直後に VNAV をエンゲー
+===== PAGE 4 =====
+ジする。
+ ● アプローチ時: ILSローカライザーのインターセプト・ヘディングに乗り、クリアランスを受領した後、APP (Approach Mode) をARMする。
+ 4.3 減速・降下手順 (10,000ft未満の速度管理) B737-700は空力性能が高く、降下中の減速が極めて困難である。
+ 1. スピードブレーキの段階的使用: 降下角が深く速度が増加する場合、PFはスピードブレーキレバーを「FLIGHT DETENT」まで展開する。
+ただし機体振動（Buffet）が生じるため、必要最小限にとどめること。
+ 2. アーリー・デセラレーション (早期減速): 10,000ft通過時に250kts以下へ減速できないリスクがある場合、事前に水平飛行区間を設けるか、早めに Flaps 1 および Flaps 5 を展開し、フラップによる抗力で減速を図ること。
+ 🛬 第5章：進入および着陸手順 5.1 オートブレーキ設定基準 PFは進入前に滑走路長および路面状況を評価し、AUTO BRAKEを以下の基準でセットする。
+ ● RTO (Rejected Takeoff): 離陸前のみ使用。
+ ● 1 / 2: 通常着陸時（ドライ滑走路、十分な滑走路長）。
+ ● 3: ウェット滑走路、または滑走路長が短い場合。
+ ● MAX: 緊急事態、極端な短滑走路、または汚染滑走路時。
+ 5.2 着陸重量 (LW) 別 Vref 参照表 ＆ Vapp 風補正ルール 着陸進入速度 (Vapp) は、以下の表から算出されたVrefに「風補正」を加えて決定する。
+ 
+
+【B737-700 Vref (KIAS) 目安表】 着陸重量 (LW) Flaps 30 Vref Flaps 40 Vref 100,000 lbs 121 118 110,000 lbs 127 124 115,000 lbs 130 126 120,000 lbs 133 129 128,000 lbs (MLW) 137 134 🌪
+
+【Vapp 風補正ルール】 ● Vapp = Vref + (1/2 向かい風成分) + (ガスト成分全量) ● ただし、最小補正値は +5 kts、最大補正値は +20 kts を限度とする。
+ ● (例: Vref 130、向かい風 10kt、ガスト 15kt の場合 → 130 + 5 + (15-10) = 140kt が Vapp) 5.3 最終進入・着陸形態設定シーケンス表 距離 / 状況 IAS 目安 形態 / 操作 PF コールアウト PM 応答 / コールアウト FAF 15nm 手前 210 Flaps 1 「Flaps 1.」 「Flaps 1, Green Light.」 FAF 10nm 手前 190 Flaps 5 「Flaps 5.」 「Flaps 5, Green Light.」 GS キャプチャ直前 170 Gear Down / Flaps 15 「Gear Down, Flaps 15.」 「Gear Down, Flaps 15.」
+===== PAGE 5 =====
+距離 / 状況 IAS 目安 形態 / 操作 PF コールアウト PM 応答 / コールアウト 高度 1,500ft AGL 150 Flaps 30 / Landing Checklist 「Flaps 30, Landing Checklist.」 「Flaps 30, Green Light.」 高度 1,000ft AGL Vapp (安定進入の確認) (無言) 「One Thousand, Stabilized.」 高度 500ft AGL Vapp (最終確認) 「Checked.」 「Five Hundred.」 高度 50ft AGL Vapp (フレア開始準備) (無言) 「Fifty.」 高度 30ft AGL Vref スロットル徐々にIDLE (無言) 「Thirty.」 5.4 リバーススラスト（逆推力）の減速プロファイル 接地後の制動は、滑走距離の最小化とブレーキ温度の管理のために極めて重要である。
+ 1. 接地直後: メインギア接地後、PFは速やかにスラストレバーをリバース位置へ引き上げ、リバーススラストを展開する。
+ 2. 展開確認: PMはスポイラーが自動展開し、エンジン計器上でリバースが正常作動していることを確認し、**「Speedbrakes UP, Reversers Normal.」**とコールする。
+ 3. マニュアルブレーキ移行: 減速が進み、60 kts に到達した時点でPMは**「Sixty Knots.」**とコールする。
+ 4. リバース解除: PFはコールを受け、リバーススラストを徐々にアイドルリバースに戻し、タキシー速度までフットブレーキを用いてマニュアル減速を行う。
+ 5.5 ゴーアラウンド（復行）手順 進入継続が困難と判断した場合、PFは躊躇なく以下の手順を実行する。
+ ● PF: (TO/GAスイッチ押下) 「Go-Around Thrust, Flaps 15.」 👉 ピッチを15度へ。
+ ● PM: 「Flaps 15.」 (フラップレバーを15へ) ● PM: 「Positive Rate.」 ● PF: 「Gear Up.」 ● PM: 「Gear Up.」 ● PF: (400ft AGL通過後) 「Set LNAV (またはHeading Select), Level Change (またはAltitude Acquire).」 🛑 第6章：AFTER LANDING PROCEDURES および シャットダウン手順 6.1 AFTER LANDING PROCEDURES (滑走路離脱後フロー) 滑走路を完全に離脱し、タクシーウェイに入った後、PMはPFの「After Landing Checklist」の指示を待たずに以下のフローを速やかに実行する。
+ 1. Speedbrake: DOWN (格納確認) 2. Flaps: UP (インジケーターで完全格納を確認) 3. Exterior Lights: Landing Lights, Strobe Lights OFF / Taxi Lights ON 4. APU: START (スポットインに向けた電源確保) 6.2 エンジン・クールダウンとシャットダウン
+===== PAGE 6 =====
+1. エンジン・クールダウン: 着陸後、熱応力によるタービンブレードの変形を防ぐため、最低3分間は推力をアイドル状態に保ちタクシングを行うこと。
+ 2. APU稼働確認: スポットインの直前にAPUが発電可能（APU GEN OFF BUS点灯）であることを確認する。
+ 3. エンジン停止: パーキングブレーキセット後、PMは以下の操作を行う。
+ ○ PF: 「Shutdown Checklist.」 ○ PM: 👉 Engine Start Levers (1 & 2)... CUTOFF ○ PM: 👉 Anti-Collision Light... OFF ○ PM: 👉 Seat Belt Signs... OFF 🛠 第7章：Infinite FlightにおけるB737-700操縦特性の最適化 本機はA321に比して胴体が短く、テールストライクの危険性は低い。
+しかし、強大なエンジン推力と空力特性から以下の厳格なピッチ・コントロールが求められる。
+ 1. ピッチ・カップリングの相殺: フラップ展開時（特に15から30への展開時）、強烈な機首上げ（バルーニング）が発生する。
+PFはフラップレバーを動かした直後から、先読みしてノーズダウン・トリムを作動させ、グライドパスからの逸脱を防止せよ。
+ 2. フレア時の推力操作: IFのB737-700は地面効果（グラウンド・エフェクト）が強く出やすい。
+30ftでのスロットルカットは急激に行わず、接地に向けて流れるように徐々に絞り切ること。
+ピッチ角は着陸時2.5度〜3.0度を目標とし、引きすぎによる浮き直りを絶対に避けること。
+ 🚨 第8章：非常・緊急事態への対処手順（MEMORY ITEMS） 以下の事象が発生した場合、QRH（Quick Reference Handbook）を開く前に、PF/PMは直ちに以下の
+
+【Memory Items（暗記項目）】を一言一句違わず実行し、機体を安全な状態へ移行させよ。
+ 🟥 ABORTED ENGINE START (始動点火不能・異常上昇) ● Engine start lever (affected engine) ...................... CUTOFF 🟥 ENGINE FIRE / SEVERE DAMAGE / SEPARATION (エンジン火災・重大損傷) ● Autothrottle (if engaged) ...................... Disengage ● Thrust lever (affected engine) ...................... Confirm ...... Close ● Engine start lever (affected engine) ...................... Confirm ...... CUTOFF ● Engine fire switch (affected engine) ...................... Confirm ...... Pull ● (If the engine fire switch or ENG OVERHEAT light is illuminated:) ● Engine fire switch ...................... Rotate to the stop and hold for 1 second 🟥 RAPID DEPRESSURIZATION / EMERGENCY DESCENT (急減圧・緊急降下) ● Oxygen masks and regulators ...................... ON, 100% ● Crew communications ...................... Establish ● Emergency Descent ...................... Announce (PF: "Emergency Descent") ● Passenger oxygen switch ...................... ON
+===== PAGE 7 =====
+● Descent ...................... Initiate (MCP ALT to MEA or 10,000ft, Level Change/VNAV, Speedbrake FLIGHT DETENT, Thrust IDLE) 🟥 CABIN ALTITUDE WARNING / UNCOMMANDED PRESSURIZATION ● Oxygen masks and regulators ...................... ON, 100% ● Crew communications ...................... Establish ✅ 第9章：JAL標準 ノーマル・チェックリスト PMが読み上げ（Challenge）、PFまたは該当者が指差し呼称で応答（Response）する。
+一部の省略も許可されない。
+ BEFORE START CHECKLIST ● PM: 「Flight Deck Door」 👉 ● PF: 「Closed and Locked」 ● PM: 「Fuel」 👉 ● PF: 「___ KGS, Pumps ON」 ● PM: 「Passenger Signs」 👉 ● PF: 「ON」 ● PM: 「Windows」 👉 ● PF: 「Locked」 ● PM: 「MCP」 👉 ● PF: 「V2 ___, Heading ___, Altitude ___ Set」 ● PM: 「Takeoff Speeds」 👉 ● PF: 「V1 ___, VR ___, V2 ___ Set」 ● PM: 「CDU Preflight」 👉 ● PF: 「Completed」 ● PM: 「Taxi and Takeoff Briefing」 👉 ● PF: 「Completed」 ● PM: 「Anti-Collision Light」 👉 ● PF: 「ON」 ● PM: 「Before Start Checklist, Completed.」 AFTER START CHECKLIST ● PM: 「Electrical」 👉 ● PF: 「Generators ON」 ● PM: 「APU」 👉 ● PF: 「OFF」 ● PM: 「Anti-Ice」 👉 ● PF: 「Auto / OFF」 ● PM: 「Air Conditioning」 👉 ● PF: 「Packs Auto, Bleeds ON」 ● PM: 「After Start Checklist, Completed.」 BEFORE TAKEOFF CHECKLIST ● PM: 「Flaps」 👉
+===== PAGE 8 =====
+● PF: 「Flaps ___ , Green Light」 ● PM: 「Stabilizer Trim」 👉 ● PF: 「___ Units, Set」 ● PM: 「Flight Controls」 👉 ● PF: 「Checked」 ● PM: 「Before Takeoff Checklist, Completed.」 AFTER TAKEOFF CHECKLIST ● PM: 「Engine Bleeds」 👉 ● PF: 「ON」 ● PM: 「Packs」 👉 ● PF: 「AUTO」 ● PM: 「Landing Gear」 👉 ● PF: 「UP and OFF」 ● PM: 「Flaps」 👉 ● PF: 「UP, No Lights」 ● PM: 「After Takeoff Checklist, Completed.」 APPROACH CHECKLIST ● PM: 「Altimeters and Instruments」 👉 ● PF: 「___ Set and Crosschecked」 ● PM: 「Approach Briefing」 👉 ● PF: 「Completed」 ● PM: 「Approach Checklist, Completed.」 LANDING CHECKLIST ● PM: 「Engine Start Switches」 👉 ● PF: 「CONT」 ● PM: 「Speedbrake」 👉 ● PF: 「ARMED, Green Light」 ● PM: 「Landing Gear」 👉 ● PF: 「Down, Three Greens」 ● PM: 「Flaps」 👉 ● PF: 「Flaps ___ , Green Light」 ● PM: 「Landing Checklist, Completed.」 PARKING CHECKLIST ● PM: 「APU / Ground Power」 👉 ● PF: 「ON / Connected」 ● PM: 「Engine Start Levers」 👉 ● PF: 「CUTOFF」 ● PM: 「Fasten Belts」 👉 ● PF: 「OFF」 ● PM: 「Parking Checklist, Completed.」 SECURING CHECKLIST
+===== PAGE 9 =====
+● PM: 「IRSs」 👉 ● PF: 「OFF」 ● PM: 「Emergency Exit Lights」 👉 ● PF: 「OFF」 ● PM: 「Window Heat」 👉 ● PF: 「OFF」 ● PM: 「Packs」 👉 ● PF: 「OFF」 ● PM: 「Securing Checklist, Completed.」 ⚠ 第10章：JAL標準 ノンノーマル・チェックリスト (QRH適用原則) 飛行中に異常が発生した場合、以下の手順で対処すること。
+ 1. Aviate / Navigate: PFはまず機体の姿勢と飛行経路の維持に全力を注ぐ。
+オートパイロットの積極的な利用を推奨する。
+ 2. Memory Items: 第8章の暗記事項に該当する場合は直ちに実行する。
+ 3. QRH (Quick Reference Handbook): 機体が安定した後、PMがQRHを取り出し、PFの指示によりノンノーマル・チェックリストを開始する。
+ ○ Identify: 故障箇所をEICAS/計器で相互確認。
+ ○ Confirm: 不可逆的な操作（Engine Start Lever, Fire Switch, Generator等）を行う際は、必ず「Confirm Engine 1...」とPFに確認を求め、PFの「Confirmed」の返答を得てから実行する。
+ IF環境下においては、システム異常が機体のコントロール喪失に直結する場合、無理なアプローチを継続せず、即座にゴーアラウンドし、安全な高度・空域で状況評価を行う「安全最優先」のJAL運航思想を貫徹すること。
