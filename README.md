@@ -193,6 +193,14 @@ node scripts/shots.mjs          # スクリーンショット検証
 
 注意点: `vite.config` の `base:'./'` によりサブパス `/repo/` で動作確認済み（絶対パス不要）。`web/` 直下に **CNAME ファイルを残さない**（サロゲート独自ドメイン指定と誤読される。surge 実験時の残骸は削除済み）。
 
+#### 2026-11-04d 恒久公開済み（GitHub Pages・branch deploy）
+
+**公開 URL: https://jenifer114514.github.io/airliner-sim/**（検証済: 200×3 / title一致 / `index-BbAtJMGh.js` 200 / 404処理正常）
+
+- 構成: `gh-pages` ブランチにビルド成果物（`web/` の中身）を push → Settings→Pages「Deploy from a branch / gh-pages / root」
+- 経緯: Actions 自動デプロイ（pages.yml）は fine-grained PAT に `workflows` 権限が必要で拒否されたため branch 方式に切替。`main`（ソース）は権限不足で未 push。リポジトリ: `Jenifer114514/airliner-sim`
+- **更新手順**: セッションで「更新」と依頼 → ビルド → gh-pages へ再 push（contents:write のトークンがあれば代行、無ければ `deploy/airliner-sim-static.zip` を gh-pages に手動 upload でも可）
+
 ### 未確認 / 既知の制約
 
 - **未確認**: 実機 iPhone のフレームレート・発熱・タッチ操作感・実際の音量バランス / 自動画質調整の実機挙動 / **speechSynthesis による英語コールの実機 iPhone 音質・遅延**（ヘッドレスでは発話自体を確認できない。バナー表示は browser-smoke で検証済み）
