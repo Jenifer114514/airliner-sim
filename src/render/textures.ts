@@ -617,3 +617,83 @@ export function makePanelTexture(): THREE.CanvasTexture {
   }
   return toTexture(c);
 }
+
+/**
+ * 地面ディテールタイル（地形 shader 用・NoColorSpace）: r=細粒、g=広斑、b=草葉ストローク。
+ * 0.5 中心の乗算/勾配データ。512²=30m 繰り返し。シード固定 LCG で決定論的（スクショ再現性）。
+ */
+export function makeGroundDetailTexture(): THREE.CanvasTexture {
+  const S = 512;
+  let seed = 987654321;
+  const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+  const layer = (draw: (x: CanvasRenderingContext2D) => void): ImageData => {
+    const c = document.createElement('canvas');
+    c.width = c.height = S;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = '#808080';
+    ctx.fillRect(0, 0, S, S);
+    draw(ctx);
+    return ctx.getImageData(0, 0, S, S);
+  };
+  // 端をまたぐprimitiveはラップ描画（タイル継ぎ目ゼロ）
+  const wrap = (fn: (dx: number, dy: number) => void) => {
+    for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) fn(ox, oy);
+  };
+  const lr = layer((x) => {
+    for (let i = 0; i < 9000; i++) {
+      const px = rnd() * S, py = rnd() * S;
+      const v = rnd() < 0.5 ? 0 : 255;
+      x.fillStyle = `rgba(${v},${v},${v},${0.05 + rnd() * 0.12})`;
+      const wdt = 1 + (i % 2);
+      wrap((dx, dy) => x.fillRect(px + dx, py + dy, wdt, 1 + ((i >> 1) % 2)));
+    }
+  });
+  const lg = layer((x) => {
+    for (let i = 0; i < 260; i++) {
+      const px = rnd() * S, py = rnd() * S, rad = 34 + rnd() * 110;
+      const dark = rnd() < 0.5;
+      const v = dark ? 0 : 255;
+      wrap((dx, dy) => {
+        const g = x.createRadialGradient(px + dx, py + dy, 2, px + dx, py + dy, rad);
+        g.addColorStop(0, `rgba(${v},${v},${v},${0.10 + rnd() * 0.10})`);
+        g.addColorStop(1, `rgba(${v},${v},${v},0)`);
+        x.fillStyle = g;
+        x.beginPath();
+        x.arc(px + dx, py + dy, rad, 0, Math.PI * 2);
+        x.fill();
+      });
+    }
+  });
+  const lb = layer((x) => {
+    x.lineWidth = 1;
+    for (let i = 0; i < 5200; i++) {
+      const px = rnd() * S, py = rnd() * S;
+      const ang = -0.5 + rnd() * 1.0, len = 2 + rnd() * 4;
+      const v = rnd() < 0.55 ? 0 : 255;
+      x.strokeStyle = `rgba(${v},${v},${v},${0.10 + rnd() * 0.16})`;
+      wrap((dx, dy) => {
+        x.beginPath();
+        x.moveTo(px + dx, py + dy);
+        x.lineTo(px + dx + Math.cos(ang) * len, py + dy + Math.sin(ang) * len);
+        x.stroke();
+      });
+    }
+  });
+  const out = document.createElement('canvas');
+  out.width = out.height = S;
+  const ox = out.getContext('2d')!;
+  const oi = ox.createImageData(S, S);
+  for (let i = 0; i < S * S * 4; i += 4) {
+    oi.data[i] = lr.data[i];
+    oi.data[i + 1] = lg.data[i + 1];
+    oi.data[i + 2] = lb.data[i + 2];
+    oi.data[i + 3] = 255;
+  }
+  ox.putImageData(oi, 0, 0);
+  const t = new THREE.CanvasTexture(out);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.NoColorSpace;
+  t.anisotropy = 8;
+  t.needsUpdate = true;
+  return t;
+}

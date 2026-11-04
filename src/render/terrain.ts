@@ -21,6 +21,7 @@ import * as THREE from 'three';
 import { WORLD } from '../config/constants.js';
 import { fbm, smoothstep, clamp, valueNoise } from '../core/math.js';
 import { AIRPORTS } from '../config/airports.js';
+import { makeGroundDetailTexture } from './textures.js';
 
 // ===== 河川ポリライン（ワールド座標 [m]）=====
 export const RIVERS: { pts: [number, number][]; width: number }[] = [
@@ -102,6 +103,10 @@ export function terrainHeight(x: number, z: number): number {
   const f = flatMask(x, z);
   return (relief(x, z) - riverCarve(x, z) * f) * f - seaMask(x, z) * 520 * f;
 }
+
+/** 地面ディテールタイル（遅延生成・全レベル共有） */
+let gDetailTex: THREE.Texture | null = null;
+const detailTex = (): THREE.Texture => (gDetailTex ??= makeGroundDetailTexture());
 
 // GLSL ES 3.0 では gl_FragColor が廃止されている（three のビルトイン chunks は
 // まだ gl_FragColor に書く）→ out 変数を自分で宣言して #define で橋渡しする。
@@ -238,6 +243,9 @@ const GLSL_FS_COLOR = /* glsl */ `
 varying float vTH;
 varying vec3 vTN;
 varying vec2 vTXZ;
+uniform sampler2D uDetail;
+float gDetQ;
+vec3 gDet;
 float airfieldMaskV(vec2 p) {
   float m = 0.0;
   for (int i = 0; i < 4; i++) {
@@ -250,9 +258,9 @@ float airfieldMaskV(vec2 p) {
 vec3 terrainColorV(vec3 camPos) {
   float h = vTH;
   float slope = 1.0 - clamp(vTN.y, 0.0, 1.0);
-  // 遠景ガード: 20km 以遠はノイズ系（農地・雪のゆらぎ）を打ち切る（iPhone FS 負荷対策。
-  // 遠方は fog で淡くなるため見た目の差はほぼない）
-  float nearQ = 1.0 - smoothstep(14000.0, 20000.0, length(camPos - vec3(vTXZ.x, vTH, vTXZ.y)));
+  // 遠景ガード: 13km 以遠はノイズ系（農地・雪のゆらぎ）を打ち切る（遠景は粗く描き、
+  // 負荷を近接地に回す方針。遠方は fog で淡くなるため見た目差は小さい）
+  float nearQ = 1.0 - smoothstep(9000.0, 13000.0, length(camPos - vec3(vTXZ.x, vTH, vTXZ.y)));
   vec3 cGrass = vec3(0.286, 0.392, 0.212);
   vec3 cForest = vec3(0.188, 0.286, 0.161);
   vec3 cRock = vec3(0.451, 0.424, 0.369);
@@ -273,7 +281,7 @@ vec3 terrainColorV(vec3 camPos) {
     col *= 0.84 + 0.32 * nA;
     float nB = vnoise(vTXZ * 0.0058 + vec2(3.3, 12.1));
     col = mix(col, col * vec3(0.78, 0.84, 0.70), 0.55 * smoothstep(0.40, 0.74, nB));
-    if (distC < 9000.0) {
+    if (distC < 7000.0) {
       float can = smoothstep(0.52, 0.80, vnoise(vTXZ * 0.0088 + vec2(1.1, 4.4))) * forestT;
       col = mix(col, col * 0.70, can * 0.75);
       col *= 0.962 + 0.076 * vnoise(vTXZ * 0.0195 + vec2(7.7, 1.3));
@@ -380,7 +388,8 @@ function buildLevel(cfg: LevelCfg, nearSeg: number): Level {
     uSpacing: { value: cfg.size / seg },
     uParent: { value: cfg.parent },
     uHalf: { value: cfg.half },
-    uMorphW: { value: cfg.morphW }
+    uMorphW: { value: cfg.morphW },
+    uDetail: { value: detailTex() }
   };
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uni, local);
@@ -391,9 +400,11 @@ function buildLevel(cfg: LevelCfg, nearSeg: number): Level {
       .replace('#include <begin_vertex>', GLSL_VS_MAIN);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\n' + GLSL_LIB + '\n' + GLSL_FS_COLOR)
-      .replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb = terrainColorV(cameraPosition);')
+      .replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb = terrainColorV(cameraPosition);\n  diffuseColor.rgb *= 1.0 + (gDet - 0.5) * vec3(0.44, 0.34, 0.26) * gDetQ;')
       .replace('#include <clipping_planes_fragment>',
-               '#include <clipping_planes_fragment>\nif (vTH < -3.0) discard;')
+               '#include <clipping_planes_fragment>\nif (vTH < -3.0) discard;\n{ gDetQ = 1.0 - smoothstep(300.0, 1450.0, length(cameraPosition - vec3(vTXZ.x, vTH, vTXZ.y)));\n  gDet = texture2D(uDetail, vTXZ * (1.0 / 30.0)).rgb; }')
+      .replace('#include <normal_fragment_begin>',
+               '#include <normal_fragment_begin>\nif (gDetQ > 0.01 && vTH > -2.0) {\n  float eD = 0.0533333;\n  vec2 duv = vTXZ * (1.0 / 30.0);\n  float hx = texture2D(uDetail, duv + vec2(eD, 0.0)).r - texture2D(uDetail, duv - vec2(eD, 0.0)).r;\n  float hz = texture2D(uDetail, duv + vec2(0.0, eD)).r - texture2D(uDetail, duv - vec2(0.0, eD)).r;\n  vec3 nW = (inverse(viewMatrix) * vec4(normal, 0.0)).xyz;\n  nW += vec3(-hx, 0.0, -hz) * 2.6 * gDetQ;\n  normal = normalize((viewMatrix * vec4(nW, 0.0)).xyz);\n}')
       .replace('#include <fog_fragment>',
                '#include <fog_fragment>\n#ifdef USE_FOG\n  float haze = smoothstep(4500.0, 15000.0, vFogDepth) * 0.45 + smoothstep(13000.0, 24000.0, vFogDepth) * 0.55;\n  gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, min(1.0, haze));\n#endif');
   };
@@ -434,8 +445,8 @@ export interface TerrainObjects {
 export function buildTerrain(scene: THREE.Scene, nearSeg = 160, midOn = true): TerrainObjects {
   const group = new THREE.Group();
   // 遠: 48km/250m（morph なし）／中: 8km/50m（親250）／近: 2km/12.5m（親50 or 250）
-  const coarse = buildLevel({ size: 48000, seg: 192, parent: 0, half: 24000, morphW: 0, snap: 0 }, nearSeg);
-  const mid = buildLevel({ size: 8000, seg: 160, parent: 250, half: 4000, morphW: 500, snap: 250 }, nearSeg);
+  const coarse = buildLevel({ size: 48000, seg: 152, parent: 0, half: 24000, morphW: 0, snap: 0 }, nearSeg);
+  const mid = buildLevel({ size: 8000, seg: 128, parent: 250, half: 4000, morphW: 500, snap: 250 }, nearSeg);
   const near = buildLevel({ size: 2000, seg: nearSeg, parent: midOn ? 50 : 250, half: 1000, morphW: 130, snap: midOn ? 50 : 250 }, nearSeg);
   coarse.mesh.name = 'terrain';
   mid.mesh.name = 'terrain-mid';
