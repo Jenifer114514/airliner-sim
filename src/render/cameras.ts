@@ -30,6 +30,9 @@ export interface AircraftPose {
   quaternion: THREE.Quaternion;
   velocity: THREE.Vector3;
   size: number; // 機体全長 [m]（カメラ距離の基準）
+  /** 対地高度 [m]（chase FOV の低空補正用） */
+  agl?: number;
+
 }
 
 export class CameraRig {
@@ -204,7 +207,8 @@ export class CameraRig {
         this.camera.up.copy(this.tmpUp);
         this.camera.lookAt(position.clone().addScaledVector(this.smoothFwd, size * 0.55));
         // 速度に応じて画角をわずかに広げる（速度感）
-        const targetFov = CAMERA.FOV + clamp(velocity.length() * 0.03, 0, 8);
+        const lowQ = pose.agl !== undefined ? clamp(1 - pose.agl / 300, 0, 1) : 0;
+        const targetFov = CAMERA.FOV + clamp(velocity.length() * 0.03, 0, 8) + lowQ * 3.2;
         this.camera.fov += (targetFov - this.camera.fov) * expSmooth(2, dt);
         this.camera.updateProjectionMatrix();
         return;

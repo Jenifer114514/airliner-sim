@@ -67,7 +67,10 @@ function relief(x: number, z: number): number {
   const mask = smoothstep(0.45, 0.68, base);
   const hills = (fbm(x * 0.00028 + 11.7, z * 0.00028 + 2.4, 2) - 0.5) * 260;
   const detail = (valueNoise(x * 0.0011 + 2.2, z * 0.0011 + 6.6) - 0.5) * 22;
-  return (base - 0.31) * 900 + (r1 * 1900 + r2 * 1100) * mask + hills + detail;
+  // メソうねり（2026-11-05: 平野にも 3km 波長の緩起伏を与え、距離に応じて稜線がずれて
+  // 見えるようにする。GLSL reliefV と完全一致必須——flicker テストが検証）
+  const swell = (fbm(x * 0.00035 + 8.3, z * 0.00035 + 4.1, 2) - 0.5) * 150;
+  return (base - 0.31) * 900 + (r1 * 1900 + r2 * 1100) * mask + hills + detail + swell;
 }
 
 /**
@@ -179,7 +182,8 @@ float reliefV(vec2 p) {
   float mask = smoothstep(0.45, 0.68, base);
   float hills = (fbm2(p * 0.00028 + vec2(11.7, 2.4), 2) - 0.5) * 260.0;
   float detail = (vnoise(p * 0.0011 + vec2(2.2, 6.6)) - 0.5) * 22.0;
-  return (base - 0.31) * 900.0 + (r1 * 1900.0 + r2 * 1100.0) * mask + hills + detail;
+  float swell = (fbm2(p * 0.00035 + vec2(8.3, 4.1), 2) - 0.5) * 150.0;
+  return (base - 0.31) * 900.0 + (r1 * 1900.0 + r2 * 1100.0) * mask + hills + detail + swell;
 }
 float flatMaskV(vec2 p) {
     float fl = 0.0;
@@ -279,6 +283,8 @@ vec3 terrainColorV(vec3 camPos) {
     // ===== 中~遠景の地面もみ上げ（のっぺり防止: ~930m 色调 / ~170m 斑 / 樹冠 / ~51m 粒）=====
     float nA = vnoise(vTXZ * 0.00108 + vec2(21.7, 5.3));
     col *= 0.84 + 0.32 * nA;
+    // 南東向き斜面の減光（擬似 hillshade。うねりの面持ちを強調する）
+    col *= 0.94 + 0.09 * clamp(vTN.z * 0.8 + vTN.x * 0.35 + 0.55, 0.0, 1.0);
     float nB = vnoise(vTXZ * 0.0058 + vec2(3.3, 12.1));
     col = mix(col, col * vec3(0.78, 0.84, 0.70), 0.55 * smoothstep(0.40, 0.74, nB));
     if (distC < 7000.0) {

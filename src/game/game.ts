@@ -44,6 +44,9 @@ import { terrainHeight } from '../render/terrain.js';
 export type GameState = 'menu' | 'flying' | 'paused';
 export type FlightMode = 'free' | 'demo';
 
+const UP_Y = new THREE.Vector3(0, 1, 0);
+const QUAT_RX90 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+
 export class Game {
   state: GameState = 'menu';
   readonly quality = new QualityManager();
@@ -603,7 +606,8 @@ export class Game {
         position: t.position,
         quaternion: t.quaternion,
         velocity: t.velocity,
-        size: this.playerSpec.fuselageLength
+        size: this.playerSpec.fuselageLength,
+        agl: Math.max(0, t.position.y - terrainHeight(t.position.x, t.position.z))
       });
     } else {
       const s = this.demo.update(dt);
@@ -613,7 +617,8 @@ export class Game {
         position: s.position,
         quaternion: s.quaternion,
         velocity: s.velocity,
-        size: this.playerSpec.fuselageLength
+        size: this.playerSpec.fuselageLength,
+        agl: Math.max(0, s.position.y - terrainHeight(s.position.x, s.position.z))
       });
     }
     this.cockpit?.update();
@@ -646,17 +651,29 @@ export class Game {
     if (fog) {
       // 対地高度が高いほど遠くを見通せる（遠近の階層を保つための緩い係数）
       const alt = Math.max(0, pos.y - terrainHeight(pos.x, pos.z));
-      // 高度基準ブラブ: AGL>360m で消え、低いほど濃く小さく（接地直感は影より輪郭）
-      if (this.groundBlob) {
+      // 機体影（高度基準 + 太陽方位）: 低いほど濃く小さく、低い太陽ほど逆光方向へ引き伸ばす。
+      // 機体真下固定ではなく地面高さへ追従 so 外部視点で接地方位・浮きが読める。
+      if (this.groundBlob && this.player) {
         const gb = this.groundBlob;
-        if (alt < 360) {
-          const k = 1 - alt / 360;
-          const gy = Math.max(terrainHeight(pos.x, pos.z), WORLD.SEA_LEVEL) + 0.5;
-          gb.position.set(pos.x, gy, pos.z);
-          const span = this.playerSpec.wingspan;
-          const r = span * 0.42 + alt * 0.11;
-          gb.scale.set(r, r * 0.86, 1);
-          (gb.material as THREE.MeshBasicMaterial).opacity = 0.10 + 0.26 * k * k;
+        const pp = this.player.group.position;
+        const altP = Math.max(0, pp.y - terrainHeight(pp.x, pp.z));
+        if (altP < 400) {
+          const sd = this.sky.sunDir;
+          const elev = Math.max(sd.y, 0.06);
+          const len = Math.min(altP / Math.max(Math.tan(elev), 0.16), altP * 1.6 + 46);
+          const hl = Math.hypot(sd.x, sd.z) || 1;
+          const ux = sd.x / hl, uz = sd.z / hl;
+          const bx = pp.x - ux * len, bz = pp.z - uz * len;
+          const gy = Math.max(terrainHeight(bx, bz), WORLD.SEA_LEVEL) + 0.5;
+          gb.position.set(bx, gy, bz);
+          const k = 1 - altP / 400;
+          const r = this.playerSpec.wingspan * 0.42 + altP * 0.10;
+          gb.scale.set(r * (1 + len / (r * 2.4)), r * 0.86, 1);
+          const ang = Math.atan2(-uz, ux);
+          gb.quaternion.setFromAxisAngle(UP_Y, ang).multiply(QUAT_RX90);
+          const soft = 1 / (1 + len * 0.0035);
+          const day = 0.45 + 0.55 * Math.min(elev / 0.5, 1);
+          (gb.material as THREE.MeshBasicMaterial).opacity = (0.09 + 0.27 * k * k) * soft * day;
           gb.visible = true;
         } else gb.visible = false;
       }
