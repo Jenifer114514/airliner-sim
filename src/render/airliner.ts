@@ -904,7 +904,7 @@ function addBayDoors(
 
 /** 胴体小物: アンテナ / SATCOM / TCAS / 静電放電素子 */
 function addFuselageDetails(group: THREE.Group, spec: AirlinerSpec, R: number, L: number): void {
-  const matAnt = new THREE.MeshStandardMaterial({ color: 0x39424b, metalness: 0.4, roughness: 0.6 });
+  const matAnt = new THREE.MeshStandardMaterial({ color: 0xaeb9c4, metalness: 0.15, roughness: 0.55 });
   const blade = (x: number, z: number, up: boolean, h: number) => {
     const b = new THREE.Mesh(new THREE.BoxGeometry(0.06, h, h * 0.42), matAnt);
     b.position.set(x, (up ? 1 : -1) * (R + h * 0.42), z);
@@ -944,10 +944,9 @@ function addFuselageDetails(group: THREE.Group, spec: AirlinerSpec, R: number, L
       const wz = -Math.tan(spec.sweep) * Math.abs(wx) - (spec.rootChord + (spec.tipChord - spec.rootChord) * (wx / halfSpan)) * 0.98;
       wick(wx, Math.abs(wx) * Math.tan(spec.dihedral), wz);
     }
-    wick(side * hstabTip(spec), R * 0.55, -L * 0.38 - spec.tailRootChord * 0.9);
+    // 水平尾翼後縁（v5j で半幅 0.25・y R*0.12・z -0.415L へ移動したのに合わせて追従）
+    const hs = spec.wingspan * 0.25 * 0.88;
+    wick(side * hs, R * 0.12, -L * 0.415 - Math.tan(spec.sweep + 0.14) * hs - spec.tailRootChord * 0.52 * 0.98);
   }
   void spec;
-}
-function hstabTip(spec: AirlinerSpec): number {
-  return spec.wingspan * 0.32 * 0.9;
 }

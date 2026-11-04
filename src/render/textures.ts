@@ -290,10 +290,10 @@ export function makeFuselageTexture(
   // --- ドア（前/後 × 両側、窓列を跨ぎ、上半分に乗客窓） ---
   for (const [dx, side] of [[228, 0], [1290, 0], [700, 1], [1560, 1]] as const) {
     const dy = side === 0 ? CY - 206 : CY + 206 - 130;
-    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.fillStyle = 'rgba(40,60,84,0.05)';
     ctx.beginPath(); ctx.roundRect(dx, dy, 52, 130, 6); ctx.fill();
-    ctx.strokeStyle = 'rgba(24,36,48,0.75)';
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(24,36,48,0.42)';
+    ctx.lineWidth = 2;
     ctx.beginPath(); ctx.roundRect(dx, dy, 52, 130, 6); ctx.stroke();
     // ドア窓
     ctx.fillStyle = '#0c1622';
@@ -303,35 +303,63 @@ export function makeFuselageTexture(
     ctx.fillRect(dx + 40, dy + 72, 6, 14);
   }
 
-  // --- コックピット窓（機首、両側対称。4枚窓風の台形 + 柱） ---
-  for (const my of [CY - 336, CY + 336]) {
-    const dir = my < CY ? 1 : -1; // 上側は下がり気味、下側は上がり気味に台形化
-    ctx.fillStyle = '#0b141d';
+  // --- コックピット窓: ラドーム境(x212)より後方の回り込みバンド（2026-11-04l 修正）。
+  //     旧実装は x26-196 = 機首 0.4-3.2m でラドーム円錐に張り付き、黒い点汚れに見えていた ---
+  const WX0 = 250, WX1 = 470;
+  ctx.fillStyle = '#101c29';
+  // 上面バンド（天面シーム y0/H をまたぐ = 左右が連続して見える）
+  ctx.fillRect(WX0 + 46, 0, WX1 - WX0 - 46, 54);
+  ctx.fillRect(WX0 + 46, H - 54, WX1 - WX0 - 46, 54);
+  // 側面台形（両側。前縁で下がり後縁へ水平気味）
+  const off = (yy: number) => H - yy;
+  for (const front of [true, false]) {
+    const y = front ? (v: number) => v : off;
     ctx.beginPath();
-    ctx.moveTo(26, my);
-    ctx.lineTo(196, my + dir * 4);
-    ctx.lineTo(196, my + dir * 66);
-    ctx.lineTo(34, my + dir * 52);
+    ctx.moveTo(WX0 + 6, y(66));
+    ctx.lineTo(WX1, y(104));
+    ctx.lineTo(WX1, y(276));
+    ctx.lineTo(WX0 + 30, y(300));
     ctx.closePath();
     ctx.fill();
-    // 窓柱 3 本（機体色で塗り分け）
+    // 内側の淡い反射（上端寄りに帯）
+    ctx.fillStyle = 'rgba(120,160,200,0.16)';
+    ctx.beginPath();
+    ctx.moveTo(WX0 + 20, y(84));
+    ctx.lineTo(WX1 - 8, y(118));
+    ctx.lineTo(WX1 - 8, y(150));
+    ctx.lineTo(WX0 + 20, y(118));
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#101c29';
+    // 柱: 風防枠 3 本 + 側窓仕切り 1 本（機体色で欠く）
     ctx.strokeStyle = topHex;
-    ctx.lineWidth = 7;
-    for (let k = 0; k < 3; k++) {
-      const fx = 62 + k * 44;
+    ctx.lineWidth = 8;
+    for (const fx of [WX0 + 58, WX0 + 124, WX0 + 182]) {
       ctx.beginPath();
-      ctx.moveTo(fx, my + dir * (2 + k * 4));
-      ctx.lineTo(fx + 8, my + dir * (58 + k * 2));
+      ctx.moveTo(fx, y(56));
+      ctx.lineTo(fx - 8, y(296));
       ctx.stroke();
     }
-    // 縁の光沢
-    ctx.strokeStyle = 'rgba(150,180,210,0.55)';
+    ctx.lineWidth = 1;
+    // 上縁の光沢
+    ctx.strokeStyle = 'rgba(150,180,210,0.5)';
     ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.moveTo(26, my); ctx.lineTo(196, my + dir * 4);
+    ctx.moveTo(WX0 + 6, y(66));
+    ctx.lineTo(WX1, y(104));
     ctx.stroke();
+    // 天面バンドの柱（シーム直上 = 窓上端の枠）
+    ctx.strokeStyle = topHex;
+    ctx.lineWidth = 8;
+    for (const fx of [WX0 + 58, WX0 + 124, WX0 + 182]) {
+      ctx.beginPath();
+      ctx.moveTo(fx, 50);
+      ctx.lineTo(fx, 0);
+      ctx.moveTo(fx, off(50));
+      ctx.lineTo(fx, H);
+      ctx.stroke();
+    }
   }
-
   // --- 社名（前部・両側） ---
   ctx.fillStyle = bottomHex;
   ctx.font = 'italic bold 92px "Helvetica Neue", Arial, sans-serif';
