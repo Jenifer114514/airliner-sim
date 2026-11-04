@@ -127,8 +127,10 @@ export class CameraRig {
 
     switch (this.mode) {
       case 'cockpit': {
-        // パイロット目線（機首寄り・上）
-        this.desiredPos.set(0, size * 0.024, size * 0.365).applyQuaternion(quaternion).add(position);
+        // パイロット目線: 計器盤（中央 z≈0.33size）・ヨーク（0.34size）より **後方** に置く。
+        // 旧値 0.365 は旧機体寸法ベースで、再設計後のコクピット群ではカメラが計器盤より
+        // 前に出てしまい「内装が一切見えない」状態になっていた（2026-11-04k 修正）
+        this.desiredPos.set(0, size * 0.026, size * 0.305).applyQuaternion(quaternion).add(position);
         this.desiredQuat.copy(quaternion);
         // 機首 +Z をカメラ前方（−Z）へ合わせるため 180° ヨー補正
         this.desiredQuat.multiply(q180Y);
