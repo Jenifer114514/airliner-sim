@@ -51,13 +51,14 @@ const OFFSET = {
 export function buildAirport(
   scene: THREE.Scene,
   airport: AirportSpec,
-  aircraftForParked: AirlinerSpec[]
+  aircraftForParked: AirlinerSpec[],
+  runwayTexPx = 512
 ): THREE.Group {
   const group = new THREE.Group();
   const { length: L, width: W, center, heading } = airport;
 
   // ===== 滑走路 =====
-  const rwTex = makeRunwayTexture(W, L, airport.runwayNumbers[0], airport.runwayNumbers[1]);
+  const rwTex = makeRunwayTexture(W, L, airport.runwayNumbers[0], airport.runwayNumbers[1], runwayTexPx);
   rwTex.wrapS = THREE.ClampToEdgeWrapping;
   rwTex.wrapT = THREE.ClampToEdgeWrapping;
   const runway = new THREE.Mesh(
@@ -272,6 +273,20 @@ export function buildAirport(
   edgeLights.instanceMatrix.needsUpdate = true;
   group.add(edgeLights);
 
+  // ===== PAPI（進入角 indicator: 白2+赤2、閾値右側）=====
+  const papiOn = [new THREE.Color(0xffffff), new THREE.Color(0xffffff), new THREE.Color(0xff2a18), new THREE.Color(0xff2a18)];
+  const papiMats = papiOn.map((c) => new THREE.MeshBasicMaterial({ color: c, fog: false }));
+  const papiGeo = new THREE.BoxGeometry(0.7, 0.5, 1.4);
+  for (const endSign of [1, -1]) {
+    for (let k = 0; k < 4; k++) {
+      const unit = new THREE.Mesh(papiGeo, papiMats[k]);
+      // 滑走路終端側は逆向き（赤白反転は簡略: 同一配置）
+      unit.position.set(W / 2 + 9 + k * 1.6, 0.55, endSign * (L / 2 - 210));
+      unit.rotation.y = endSign < 0 ? Math.PI : 0;
+      group.add(unit);
+    }
+  }
+
   // 誘導路の青色灯
   const blueMat = new THREE.MeshBasicMaterial({ color: 0x4488ff, fog: false });
   const taxiLights = new THREE.InstancedMesh(lightGeo, blueMat, 2 * 40);
@@ -289,6 +304,17 @@ export function buildAirport(
   // 空港全体の向き・位置
   group.position.set(center.x, 0, center.z);
   group.rotation.y = heading;
+
+  // ===== 夜間灯光: 昼は消し気味・夜は発光（bloom 映え） =====
+  const baseEdge = edgeMat.color.clone();
+  const baseBlue = blueMat.color.clone();
+  const basePapi = papiMats.map((m) => m.color.clone());
+  (group.userData as Record<string, unknown>).setNightLights = (f: number) => {
+    const k = 0.16 + 1.5 * f; // 昼 0.16 → 夜 1.66
+    edgeMat.color.copy(baseEdge).multiplyScalar(k);
+    blueMat.color.copy(baseBlue).multiplyScalar(k);
+    papiMats.forEach((m, i) => m.color.copy(basePapi[i]).multiplyScalar(0.2 + 1.5 * f));
+  };
 
   scene.add(group);
   return group;

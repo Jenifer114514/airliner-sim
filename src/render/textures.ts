@@ -40,8 +40,11 @@ function toTexture(canvas: HTMLCanvasElement, repeat?: [number, number]): THREE.
 }
 
 /** 滑走路表面（中央線・停止線・番号・タッチダウンゾーン・ゴム付着） */
-export function makeRunwayTexture(width: number, length: number, numA: string, numB: string): THREE.CanvasTexture {
-  const [c, ctx] = makeCanvas(512, 4096);
+export function makeRunwayTexture(width: number, length: number, numA: string, numB: string, resPx = 512): THREE.CanvasTexture {
+  const [c, ctx] = makeCanvas(resPx, resPx * 8);
+  // 既定ロジックは 512×4096 設計 → 解像度分を transform でスケール（線幅・文字も追随）
+  const K = resPx / 512;
+  ctx.scale(K, K);
   // アスファルト（継ぎ目とパッチ）
   ctx.fillStyle = '#31363c';
   ctx.fillRect(0, 0, 512, 4096);
@@ -56,7 +59,7 @@ export function makeRunwayTexture(width: number, length: number, numA: string, n
     ctx.fillStyle = `rgba(${v},${v + 2},${v + 6},0.35)`;
     ctx.fillRect(rand() * 512 - 40, rand() * 4096 - 60, 40 + rand() * 120, 60 + rand() * 220);
   }
-  for (let i = 0; i < 6000; i++) {
+  for (let i = 0; i < 6000 * K * K; i++) {
     const v = 34 + rand() * 44;
     ctx.fillStyle = `rgba(${v},${v + 2},${v + 7},0.5)`;
     ctx.fillRect(rand() * 512, rand() * 4096, 1 + rand() * 3, 1 + rand() * 3);
@@ -114,8 +117,35 @@ export function makeRunwayTexture(width: number, length: number, numA: string, n
   ctx.fillText(numA, 0, 0);
   ctx.restore();
   ctx.fillText(numB, 256, 3886);
+  // ランウェイ・グルービング（センター両側 1/3 に横溝。近接時にうっすら見える）
+  ctx.strokeStyle = 'rgba(16,18,22,0.13)';
+  ctx.lineWidth = 1;
+  for (let y = 60; y < 4036; y += 13) {
+    ctx.beginPath(); ctx.moveTo(96, y); ctx.lineTo(416, y); ctx.stroke();
+  }
   void width; void length;
-  return toTexture(c);
+  const tex = toTexture(c);
+  tex.anisotropy = 16;
+  return tex;
+}
+
+/** 市街地の夜間窓（emissive 用: 窓の明滅パターン。dark=消灯 / 暖色=点灯） */
+export function makeBuildingEmissiveTexture(): THREE.CanvasTexture {
+  const [c, ctx] = makeCanvas(128, 256);
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, 128, 256);
+  let seed = 4242;
+  const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  for (let y = 8; y < 250; y += 16) {
+    for (let x = 6; x < 122; x += 14) {
+      const r = rand();
+      if (r < 0.42) continue; // 消灯
+      const warm = 180 + Math.floor(r * 70);
+      ctx.fillStyle = r > 0.9 ? `rgb(${warm},${warm},${warm})` : `rgb(${warm},${Math.floor(warm * 0.78)},${Math.floor(warm * 0.5)})`;
+      ctx.fillRect(x, y, 9, 10);
+    }
+  }
+  return toTexture(c, [2, 3]);
 }
 
 /** 誘導路（黄色センターライン + 縁 + 待機位置） */

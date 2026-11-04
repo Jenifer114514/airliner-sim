@@ -6,3 +6,4 @@ screenshots/
 *.local
 .DS_Store
 npm-debug.log*
+.deploy-token

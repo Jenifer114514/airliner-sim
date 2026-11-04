@@ -3,6 +3,10 @@
  * 状態: 'menu'（3D プレビュー）| 'flying'（デモ飛行）| 'paused'
  */
 import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { WORLD, type QualityLevel } from '../config/constants.js';
 import { getAircraftSpec, AIRCRAFT, type AirlinerSpec } from '../config/aircraft.js';
 import { getAirportSpec, AIRPORTS } from '../config/airports.js';
@@ -77,6 +81,12 @@ export class Game {
   private lastTel: PhysicsTelemetry | null = null;
   private lastDemoState: DemoState | null = null;
 
+  // ポスト処理（bloom）: high/ultra のみ有効
+  private composer: EffectComposer | null = null;
+  private bloomPass: UnrealBloomPass | null = null;
+  private cityGroup: THREE.Group | null = null;
+  private airportGroups: THREE.Group[] = [];
+
   // メニュー用 3D プレビュー
   private previewScene: THREE.Scene;
   private previewAircraft: AirlinerParts | null = null;
@@ -101,9 +111,12 @@ export class Game {
     this.applyShadowSettings();
     this.clouds = buildClouds(scene, this.quality.preset.cloudCount);
     this.rain = buildRain(scene);
-    for (const ap of AIRPORTS) buildAirport(scene, ap, AIRCRAFT);
-    buildCity(scene, this.quality.preset.cityCount);
+    for (const ap of AIRPORTS) this.airportGroups.push(buildAirport(scene, ap, AIRCRAFT, this.quality.preset.runwayTexPx));
+    this.cityGroup = buildCity(scene, this.quality.preset.cityCount);
     buildNature(scene, this.quality.preset.treeCount);
+
+    // ===== bloom composer（最終アウトプットのみ経路。プレビューは素通し） =====
+    if (this.quality.preset.bloom) this.enableBloom();
 
     // ===== メニュー用プレビューシーン =====
     this.previewScene = new THREE.Scene();
@@ -132,6 +145,38 @@ export class Game {
     this.renderer.shadowMap.enabled = p.shadows;
     this.terrain.setMid(p.terrainMid);
     this.applyShadowSettings();
+    if (p.bloom && !this.composer) this.enableBloom();
+    this.syncPostFx();
+  }
+
+  private enableBloom(): void {
+    const r = this.renderer;
+    const size = new THREE.Vector2();
+    r.getSize(size);
+    const composer = new EffectComposer(r);
+    composer.addPass(new RenderPass(this.scene, this.camera));
+    const bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.42, 0.62, 0.8);
+    composer.addPass(bloom);
+    composer.addPass(new OutputPass()); // ACES + sRGB をここで適用（renderer 設定を継承）
+    composer.setPixelRatio(r.getPixelRatio());
+    this.composer = composer;
+    this.bloomPass = bloom;
+  }
+
+  /** renderer のピクセル比/サイズ変更時に composer を同期（main の resize/applyPixelRatio から呼ぶ） */
+  syncPostFx(): void {
+    if (this.bloomPass) this.bloomPass.enabled = this.quality.preset.bloom;
+    if (!this.composer) return;
+    this.composer.setPixelRatio(this.renderer.getPixelRatio());
+    const size = new THREE.Vector2();
+    this.renderer.getSize(size);
+    this.composer.setSize(size.x, size.y);
+  }
+
+  /** 現在の環境（時刻）を灯光・空・海面へ再適用（setQuality で runwayTex 等が変わらなくても安全） */
+  private lastEnvIds: [string, string, string] | null = null;
+  reapplyEnvironment(): void {
+    if (this.lastEnvIds) this.applyEnvironment(...this.lastEnvIds);
   }
 
   /** 太陽影カメラの範囲・解像度をプリセットから適用（map は破棄して作り直し） */
@@ -161,6 +206,7 @@ export class Game {
    * 単位: 風速 m/s、乱流 0..1。雨の強さ 0..1。
    */
   applyEnvironment(timeId: string, weatherId: string, windId: string): void {
+    this.lastEnvIds = [timeId, weatherId, windId];
     const t = getTimePreset(timeId);
     const w = getWeatherPreset(weatherId);
     const wind = getWindPreset(windId);
@@ -172,6 +218,16 @@ export class Game {
       t.sunIntensity * w.sunScale,
       t.hemiIntensity * (0.55 + 0.45 * w.sunScale)
     );
+    // 夜進行: 星・滑走路/市街の灯光・海面リフレクション・環境マップ再焼成
+    this.sky.setStars(Math.max(0, (t.nightLights - 0.62) / 0.38)); // 夕刻(0.55)では出さない
+    const setNight = (g: THREE.Group | null) => {
+      const fn = g?.userData?.setNightLights as ((f: number) => void) | undefined;
+      fn?.(t.nightLights * (0.55 + 0.45 * w.sunScale));
+    };
+    setNight(this.cityGroup);
+    for (const g of this.airportGroups) setNight(g);
+    this.water.setPalette(t.skyTop, t.skyHorizon, t.sunColor, t.sunElevation);
+    this.sky.regenerateEnv(this.scene); // 機体 IBL もその時間帯の空に追従
 
     // フォグ（天候で濃く）
     const fog = this.scene.fog as THREE.Fog;
@@ -588,7 +644,11 @@ export class Game {
   }
 
   render(): void {
-    this.renderer.render(this.scene, this.camera);
+    if (this.composer && this.quality.preset.bloom) {
+      this.composer.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   private applyDemoState(s: DemoState): void {

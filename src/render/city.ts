@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { makeRandom, clamp } from '../core/math.js';
 import { terrainHeight } from './terrain.js';
-import { makeBuildingTexture } from './textures.js';
+import { makeBuildingTexture, makeBuildingEmissiveTexture } from './textures.js';
 
 /** 建物当たり判定（main の衝突爆発用）。x,z=中心 r=半径 top=陸部高さ */
 export const buildingColliders: { x: number; z: number; r: number; top: number }[] = [];
@@ -17,8 +17,12 @@ export function buildCity(scene: THREE.Scene, count: number): THREE.Group {
 
   const geo = new THREE.BoxGeometry(1, 1, 1);
   geo.translate(0, 0.5, 0); // バウンディングボックスを底面基準に
+  const emiTex = makeBuildingEmissiveTexture();
   const mat = new THREE.MeshStandardMaterial({
     map: makeBuildingTexture(),
+    emissiveMap: emiTex,
+    emissive: new THREE.Color(0xffd9a0),
+    emissiveIntensity: 0.0,
     metalness: 0.18,
     roughness: 0.72
   });
@@ -66,6 +70,9 @@ export function buildCity(scene: THREE.Scene, count: number): THREE.Group {
   const tMat = new THREE.MeshStandardMaterial({
     map: makeBuildingTexture(),
     color: 0xbdd8ee,
+    emissiveMap: emiTex,
+    emissive: new THREE.Color(0xfff0c8),
+    emissiveIntensity: 0.0,
     metalness: 0.55,
     roughness: 0.3
   });
@@ -161,6 +168,39 @@ export function buildCity(scene: THREE.Scene, count: number): THREE.Group {
   roadMesh.name = 'roads';
   roadMesh.receiveShadow = true;
   group.add(roadMesh);
+
+  // ===== 超高層の障害灯（赤クンビーコン: 塔頂に 1 灯。夜間のみ発光→bloom） =====
+  const beacons: THREE.Vector3[] = [];
+  {
+    const mm = new THREE.Matrix4();
+    for (let i = 0; i < tMesh.count; i++) {
+      tMesh.getMatrixAt(i, mm);
+      const p = new THREE.Vector3();
+      const qq = new THREE.Quaternion();
+      const sc = new THREE.Vector3();
+      mm.decompose(p, qq, sc);
+      beacons.push(new THREE.Vector3(p.x, p.y + sc.y - 2, p.z));
+    }
+  }
+  const beaconMat = new THREE.MeshBasicMaterial({ color: 0xff2a18, fog: false, transparent: true, opacity: 0 });
+  const beaconGeo = new THREE.SphereGeometry(1.6, 8, 6);
+  const beaconMesh = new THREE.InstancedMesh(beaconGeo, beaconMat, Math.max(1, beacons.length));
+  beaconMesh.name = 'beacons';
+  {
+    const bm = new THREE.Matrix4();
+    beacons.forEach((b, i) => { bm.makeTranslation(b.x, b.y, b.z); beaconMesh.setMatrixAt(i, bm); });
+    beaconMesh.instanceMatrix.needsUpdate = true;
+  }
+  group.add(beaconMesh);
+
+  // ===== 夜間系 API =====
+  (group.userData as Record<string, unknown>).setNightLights = (f: number) => {
+    const k = Math.max(0, Math.min(1, (f - 0.12) / 0.88)); // 昼 0.15 → ほぼ消灯 / 夕 0.55 → 点灯開始
+    mat.emissiveIntensity = k * 1.35;
+    tMat.emissiveIntensity = k * 1.55;
+    beaconMat.opacity = k * 0.95;
+    beaconMesh.visible = k > 0.03;
+  };
 
   scene.add(group);
   return group;

@@ -193,6 +193,16 @@ node scripts/shots.mjs          # スクリーンショット検証
 
 注意点: `vite.config` の `base:'./'` によりサブパス `/repo/` で動作確認済み（絶対パス不要）。`web/` 直下に **CNAME ファイルを残さない**（サロゲート独自ドメイン指定と誤読される。surge 実験時の残骸は削除済み）。
 
+#### 2026-11-04f 環境 bloom・夜景灯光・海面リフレクション・滑走路 4K
+
+- **bloom（UnrealBloom 0.42/0.62/0.8）**: high/ultra で有効。EffectComposer+OutputPass 経路（ACES は OutputPass 適用で二重掛けなし）。`game.syncPostFx()` で resize/pixelRatio 変更に追随、low/medium は素通しのまま
+- **夜景灯光**: 時刻プリセット `nightLights` を実消費——滑走路縁灯/誘導路青灯/PAPI を夜のみ高輝度化（昼は減光）、市街は窓 emissive マップ（暖色点滅パターン）+超高層障害灯（赤クンビーコン InstancedMesh）、星空 1400 点（夜のみ・ソフトスプライト加算、夕刻では出ない閾値）
+- **海面**: 実空パレット同期リフレクション（反射線が指す空勾配+太陽方位の暖色、sunset で海が橙に）、低太陽角の glitter 帯。環境マップは時間帯ごとに PMREM 再焼成（機体 IBL が夕焼けを映す）
+- **滑走路テクスチャ**: ultra/high で 1024×8192（4 倍画素、ctx スケールで旧描画ロジック全互換）+ランウェイグルービング+aniso16。medium/low は 512 維持
+- ultra プリセット増強: tree 2000 / city 520 / cloud 44 / terrainNearSeg 256 / shadowRange 2800
+- 検証: typecheck✓ build✓（666KB）smoke **29/30**（1 件は baseline worktree でも同一の既存ハーネス事象）/ autopilot 30/30 / physics 10/10 / JS error 0（bloom 有効時の全環境ショット込み）。夜/夕/昼スクショ `screenshots/v3/`
+- 既知: 敷居マーキングのローリングモアレ（旧来からの現象、本次改動で悪化なし=旧スクショと同一確認済）
+
 #### 2026-11-04e 機体グラフィック G パック（胴体専用に絞った大型改訂）
 
 - **塗装**: 胴体テクスチャ 2048×1024 化（窓=フレーム+ガラス勾配+反射/ドア窓/双チートライン/コックピット 4 枚窓/貨物ハッチ/腹部汚れ）、**社名 SKYLINER・登録記号（JA73AI 等）** を対向側で文字が読めるようミラーペア描画。機体色は **MeshPhysical クリアコート**（駐機機は Standard 据え置き）

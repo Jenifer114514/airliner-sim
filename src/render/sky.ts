@@ -18,6 +18,10 @@ export interface SkyObjects {
   setSunElevation(el: number): void;
   /** 空・光の色を時間帯/天候で変更（Phase 5） */
   setPalette(skyTop: number, skyHorizon: number, sunColor: number, sunIntensity: number, hemiIntensity: number): void;
+  /** 星の強さ 0..1（nightLights に同期） */
+  setStars(f: number): void;
+  /** 現パレットで PMREM 環境マップを再焼成（機体 IBL・海面空色と一致させる） */
+  regenerateEnv(scene: THREE.Scene): void;
 }
 
 export function buildSky(scene: THREE.Scene, renderer: THREE.WebGLRenderer): SkyObjects {
@@ -68,15 +72,16 @@ export function buildSky(scene: THREE.Scene, renderer: THREE.WebGLRenderer): Sky
   scene.add(sky);
 
   // ===== PMREM 環境マップ（IBL）: 空シェーダを焼き込み =====
-  const pmrem = new THREE.PMREMGenerator(renderer);
+  const pmrem0 = new THREE.PMREMGenerator(renderer);
   const envScene = new THREE.Scene();
-  const envSky = new THREE.Mesh(new THREE.SphereGeometry(100, 24, 12), skyMat);
+  const envSky = new THREE.Mesh(new THREE.SphereGeometry(100, 32, 16), skyMat);
   envSky.frustumCulled = false;
   envScene.add(envSky);
-  const envRT = pmrem.fromScene(envScene, 0.04);
+  let envRT = pmrem0.fromScene(envScene, 0.04);
   scene.environment = envRT.texture;
-  envSky.geometry.dispose();
-  pmrem.dispose();
+  // 再焼成用は軽量 PMREMGenerator を常時保持（dispose せず再利用。切替は 1回/操作）
+  const pmrem = pmrem0;
+  void renderer;
 
   // ===== ライト =====
   const sun = new THREE.DirectionalLight(0xfff1dc, 2.4);
@@ -86,6 +91,49 @@ export function buildSky(scene: THREE.Scene, renderer: THREE.WebGLRenderer): Sky
 
   const hemi = new THREE.HemisphereLight(0xbcd8f0, 0x6a7a58, 0.75);
   scene.add(hemi);
+
+  // ===== 星（夜間のみ。Points・加算・bloom 映え） =====
+  const N = 1400;
+  const starPos = new Float32Array(N * 3);
+  const starSize = new Float32Array(N);
+  {
+    let sd = 20261104;
+    const rnd = () => { sd = (sd * 1103515245 + 12345) & 0x7fffffff; return sd / 0x7fffffff; };
+    for (let i = 0; i < N; i++) {
+      // 上半球のみ均一
+      const u = rnd() * Math.PI * 2;
+      const v = Math.acos(1 - rnd()); // 天頂密度重み
+      const rr = 21000;
+      starPos[i * 3] = Math.sin(v) * Math.cos(u) * rr;
+      starPos[i * 3 + 1] = Math.cos(v) * rr;
+      starPos[i * 3 + 2] = Math.sin(v) * Math.sin(u) * rr;
+      starSize[i] = 0; // 予備（sizeAttenuation なしの一律 px サイズで代用）
+    }
+  }
+  const starGeo = new THREE.BufferGeometry();
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+  // 丸いソフトスプライト（スクエア点のギザギザを防止）+ 2〜3px
+  const starTex = (() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 32;
+    const g2 = c.getContext('2d')!;
+    const grad = g2.createRadialGradient(16, 16, 1, 16, 16, 15);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.35, 'rgba(235,242,255,0.85)');
+    grad.addColorStop(1, 'rgba(235,242,255,0)');
+    g2.fillStyle = grad;
+    g2.fillRect(0, 0, 32, 32);
+    const t = new THREE.CanvasTexture(c);
+    return t;
+  })();
+  const starMat = new THREE.PointsMaterial({
+    color: 0xdfe8ff, size: 3.2, sizeAttenuation: false, map: starTex, alphaTest: 0.02,
+    transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false
+  });
+  const stars = new THREE.Points(starGeo, starMat);
+  stars.renderOrder = -9;
+  stars.frustumCulled = false;
+  scene.add(stars);
 
   return {
     sky,
@@ -106,6 +154,17 @@ export function buildSky(scene: THREE.Scene, renderer: THREE.WebGLRenderer): Sky
       sun.color.setHex(sunColor);
       sun.intensity = sunIntensity;
       hemi.intensity = hemiIntensity;
+      hemi.color.setHex(skyHorizon);
+    },
+    setStars(f: number) {
+      starMat.opacity = Math.max(0, Math.min(1, f)) * 0.8;
+      stars.visible = f > 0.02;
+    },
+    regenerateEnv(sceneRef: THREE.Scene) {
+      const prev = envRT;
+      envRT = pmrem.fromScene(envScene, 0.04);
+      sceneRef.environment = envRT.texture;
+      prev.dispose();
     }
   };
 }

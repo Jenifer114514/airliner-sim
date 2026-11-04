@@ -102,6 +102,7 @@ const menu = new Menu(() => {
   game.setQuality(menu.config.quality);
   autoQualityMax = menu.config.quality;
   applyPixelRatio(renderer, game.quality.preset.pixelRatio);
+  game.syncPostFx();
   game.applyEnvironment(menu.config.time, menu.config.weather, menu.config.wind);
   menu.hide();
   hudRoot.style.display = 'block';
@@ -528,6 +529,7 @@ canvas.addEventListener('pointercancel', endOrbit);
 // ============================================================
 function onResize(): void {
   resizeRenderer(renderer, camera);
+  game.syncPostFx();
   overlays.updateOrientation();
   instruments.resize();
 }
@@ -702,6 +704,8 @@ function frame(now: number): void {
         autoLowTimer = 0;
         game.setQuality(QUALITY_ORDER[idx - 1]);
         applyPixelRatio(renderer, game.quality.preset.pixelRatio);
+        game.syncPostFx();
+  game.syncPostFx();
       }
     } else if (fps > 55 && idx < maxIdx) {
       autoLowTimer = 0;
@@ -710,6 +714,8 @@ function frame(now: number): void {
         autoHighTimer = 0;
         game.setQuality(QUALITY_ORDER[idx + 1]);
         applyPixelRatio(renderer, game.quality.preset.pixelRatio);
+        game.syncPostFx();
+  game.syncPostFx();
       }
     } else {
       autoLowTimer = 0;

@@ -39,10 +39,14 @@ export interface QualityPreset {
   terrainMid: boolean;
   /** 太陽影のカバー範囲 [m]（プレイヤー中心） */
   shadowRange: number;
+  /** UnrealBloom（夜間灯・太陽・雲高光の発光）。high/ultra のみ */
+  bloom: boolean;
+  /** 滑走路テクスチャの横幅 px（縦は 8 倍。512→1024 で 4 倍画素） */
+  runwayTexPx: number;
 }
 export const QUALITY: Record<QualityLevel, QualityPreset> = {
-  ultra:  { pixelRatio: 3.0, shadows: true,  shadowMapSize: 4096, treeCount: 1400, cityCount: 420, cloudCount: 36, terrainNearSeg: 200, terrainMid: true,  shadowRange: 2600 },
-  high:   { pixelRatio: 2.0, shadows: true,  shadowMapSize: 2048, treeCount: 1100, cityCount: 320, cloudCount: 30, terrainNearSeg: 160, terrainMid: true,  shadowRange: 2600 },
-  medium: { pixelRatio: 1.5, shadows: true,  shadowMapSize: 1024, treeCount: 650,  cityCount: 220, cloudCount: 22, terrainNearSeg: 128, terrainMid: true,  shadowRange: 2000 },
-  low:    { pixelRatio: 1.0, shadows: false, shadowMapSize: 512,  treeCount: 320,  cityCount: 130, cloudCount: 14, terrainNearSeg: 96,  terrainMid: false, shadowRange: 1400 }
+  ultra:  { pixelRatio: 3.0, shadows: true,  shadowMapSize: 4096, treeCount: 2000, cityCount: 520, cloudCount: 44, terrainNearSeg: 256, terrainMid: true,  shadowRange: 2800, bloom: true,  runwayTexPx: 1024 },
+  high:   { pixelRatio: 2.0, shadows: true,  shadowMapSize: 2048, treeCount: 1400, cityCount: 380, cloudCount: 34, terrainNearSeg: 192, terrainMid: true,  shadowRange: 2600, bloom: true,  runwayTexPx: 1024 },
+  medium: { pixelRatio: 1.5, shadows: true,  shadowMapSize: 1024, treeCount: 650,  cityCount: 220, cloudCount: 22, terrainNearSeg: 128, terrainMid: true,  shadowRange: 2000, bloom: false, runwayTexPx: 512 },
+  low:    { pixelRatio: 1.0, shadows: false, shadowMapSize: 512,  treeCount: 320,  cityCount: 130, cloudCount: 14, terrainNearSeg: 96,  terrainMid: false, shadowRange: 1400, bloom: false, runwayTexPx: 512 }
 };
