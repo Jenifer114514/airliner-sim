@@ -337,6 +337,48 @@ bindButton('btn-inst', () => {
   el.innerHTML = hidden ? '計器<br>ON' : '計器<br>OFF';
   el.classList.toggle('on', !hidden);
 });
+// --- 全画面（Fullscreen API。2026-11-06）---
+// iPhone Safari は要素 fullscreen 非対応 →「ホーム画面に追加」(standalone) へ誘導。
+// Android Chrome / デスクトップは requestFullscreen、旧 Safari は webkit 経由。
+type FsElement = HTMLElement & { webkitRequestFullscreen?: () => void };
+type FsDocument = Document & {
+  webkitFullscreenElement?: Element | null;
+  webkitExitFullscreen?: () => void;
+};
+const fsDoc = document as FsDocument;
+const fsEl = (document.getElementById('app') ?? document.documentElement) as FsElement;
+const isFs = (): boolean => document.fullscreenElement != null || fsDoc.webkitFullscreenElement != null;
+function fsSyncLabel(): void {
+  const el = document.getElementById('btn-fs') as HTMLElement;
+  el.innerHTML = isFs() ? '解除' : '全画面';
+  el.classList.toggle('on', isFs());
+  onResize(); // 全画面前後で safe-area/viewport が変わるため明示再同期
+}
+bindButton('btn-fs', () => {
+  // 状態ラベルは fullscreenchange でも同期するが、イベントが遅延/非発火の環境があるため
+  // プロミス解決時に明示同期も行う（冪等なので二重発火は無害）
+  if (isFs()) {
+    if (document.exitFullscreen) void document.exitFullscreen().then(() => fsSyncLabel()).catch(() => undefined);
+    else if (fsDoc.webkitExitFullscreen) { fsDoc.webkitExitFullscreen(); setTimeout(fsSyncLabel, 0); }
+    return;
+  }
+  try {
+    if (fsEl.requestFullscreen) void fsEl.requestFullscreen().then(() => fsSyncLabel()).catch(() => fsUnsupported());
+    else if (fsEl.webkitRequestFullscreen) { fsEl.webkitRequestFullscreen(); setTimeout(fsSyncLabel, 0); }
+    else fsUnsupported();
+  } catch {
+    fsUnsupported();
+  }
+});
+function fsUnsupported(): void {
+  sopBanner.show({
+    text: 'このブラウザは全画面 API 非対応です。iPhone は共有→「ホーム画面に追加」で全画面起動',
+    speech: null,
+    kind: 'warn'
+  });
+}
+document.addEventListener('fullscreenchange', fsSyncLabel);
+document.addEventListener('webkitfullscreenchange' as 'fullscreenchange', fsSyncLabel);
 
 overlays.on('resume', () => {
   game.resume();

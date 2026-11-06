@@ -37,12 +37,13 @@ iPhone Safari は `file://` 直開きでは動作しません。必ず HTTP(S) �
 npm run typecheck            # TypeScript 型検査（strict）
 npm run build                # ビルド
 node scripts/physics-test.mjs   # 物理スモークテスト（Node + esbuild）
-node scripts/browser-smoke.mjs  # 実ブラウザ回帰テスト（離陸操縦・計器・音声・環境・UI・SOP・AP・空港選択、26 項目）
+node scripts/browser-smoke.mjs  # 実ブラウザ回帰テスト（離陸操縦・計器・音声・環境・UI・SOP・AP・空港選択、30 項目）
 node scripts/autopilot-test.mjs # オートパイロット法則テスト（Node 直接駆動 30 項目: ALT/V/S/HDG/LOC/GS/A/T/安全性）
 node scripts/flicker-test.mjs   # 地形シェーダの z-fight/スimmer 回帰（4 ビュー色分散比較）
 node scripts/env-test.mjs       # 風・燃料・乱流・ナビ計算テスト
 node scripts/sop-test.mjs       # JAL/JTA マニュアル反映データ検証（V 速度・V_FE・Vref/Vapp）
 node scripts/layout-test.mjs    # UI 重なり自動検証（iPhone 横 5 解像度）
+node scripts/fs-test.mjs        # 全画面トグル実挙動検証（fullscreenElement 遷移・ラベル・canvas サイズ）
 node scripts/ui-shot.mjs        # 計器盤・環境（夕焼け/夜雨）スクリーンショット
 node scripts/manual-shot.mjs    # マニュアル改良部（SOP バナー・V 速度バグ）スクリーンショット
 node scripts/shots.mjs          # スクリーンショット検証
@@ -202,6 +203,14 @@ node scripts/shots.mjs          # スクリーンショット検証
 - ultra プリセット増強: tree 2000 / city 520 / cloud 44 / terrainNearSeg 256 / shadowRange 2800
 - 検証: typecheck✓ build✓（666KB）smoke **29/30**（1 件は baseline worktree でも同一の既存ハーネス事象）/ autopilot 30/30 / physics 10/10 / JS error 0（bloom 有効時の全環境ショット込み）。夜/夕/昼スクショ `screenshots/v3/`
 - 既知: 敷居マーキングのローリングモアレ（旧来からの現象、本次改動で悪化なし=旧スクショと同一確認済）
+
+#### 2026-11-06b 全画面表示（Fullscreen API）
+
+- **追加**: ボタンクラスタ最終マスを `[全画面]`（`btn-fs`）に。タップで `#app`（canvas+HUD 全体）を `requestFullscreen()`、もう一度で `exitFullscreen()`。**Esc/OS 操作での解除にも `fullscreenchange` リスナで追従**（ラベル「解除」+緑ハイライト、`onResize()` 再同期）
+- **互換**: `requestFullscreen` → `webkitRequestFullscreen` の順に試行（旧 Safari）。**iPhone Safari は要素全画面 API 非対応**のため、非対応時は SOP バナーで「共有→ホーム画面に追加（apple-mobile-web-app-capable は設定済）」へ誘導
+- **同期の二重担保**: fullscreenchange が遅延/非発火の環境があるため、Promise 解決時にも `fsSyncLabel()` を呼ぶ（冪等）
+- **レイアウト**: クラスタは 3 列 grid、11→12 セルで行数不変（高さ増なし）
+- **検証**: `scripts/fs-test.mjs` **6/6**（実クリック→`document.fullscreenElement=#app`・ラベル/on クラス遷移・canvas ≥95% viewport・再タップで解除・JS errors 0）。browser-smoke 30/30・layout-test 重複なし
 
 #### 2026-11-06 配置の自然化（街路グリッド整合）+ 機体影の地形追従
 

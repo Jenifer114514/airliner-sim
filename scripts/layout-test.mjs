@@ -42,7 +42,7 @@ function intersects(a, b) {
   return x * y;
 }
 
-const browser = await chromium.launch();
+const browser = await chromium.launch({ executablePath: process.env.CHROME_BIN || undefined, args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 let pass = 0;
 let fail = 0;
 
