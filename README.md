@@ -306,7 +306,7 @@ node scripts/shots.mjs          # スクリーンショット検証
 **公開 URL: https://jenifer114514.github.io/airliner-sim/**（検証済: 200×3 / title一致 / `index-BbAtJMGh.js` 200 / 404処理正常）
 
 - 構成: `gh-pages` ブランチにビルド成果物（`web/` の中身）を push → Settings→Pages「Deploy from a branch / gh-pages / root」
-- 経緯: Actions 自動デプロイ（pages.yml）は fine-grained PAT に `workflows` 権限が必要で拒否されたため branch 方式に切替。`main`（ソース）は権限不足で未 push。リポジトリ: `Jenifer114514/airliner-sim`
+- 経緯: Actions 自動デプロイ（pages.yml）は fine-grained PAT に `workflows` 権限が必要で拒否されたため branch 方式に切替（リポジトリからは不要になった `.github/` を履歴ごと削除）。**`main`（ソース全体）は 2026-11-06 に push 完了済** — GitHub 上にフルソースのバックアップあり。リポジトリ: `Jenifer114514/airliner-sim`
 - **更新手順**: セッションで「更新」と依頼 → ビルド → gh-pages へ再 push（contents:write のトークンがあれば代行、無ければ `deploy/airliner-sim-static.zip` を gh-pages に手動 upload でも可）
 
 ### 未確認 / 既知の制約
