@@ -61,16 +61,18 @@ function relief(x: number, z: number): number {
   const wx = x + 900 * (fbm(x * 0.000021 + 5.2, z * 0.000021 + 1.3, 2) - 0.5);
   const wz = z + 900 * (fbm(x * 0.000021 + 9.1, z * 0.000021 + 4.4, 2) - 0.5);
   const base = fbm(wx * 0.000045 + 3.1, wz * 0.000045 + 7.7, 3);
-  // 山脈: リッジノイズ 2 系統 × 存在マスク（base から導出して octave 節約）
-  const r1 = Math.pow(1 - Math.abs(2 * fbm(wx * 0.00013 + 21.3, wz * 0.00013 + 5.9, 2) - 1), 2.2);
-  const r2 = Math.pow(1 - Math.abs(2 * fbm(wx * 0.00009 + 40.7, wz * 0.00009 + 17.2, 2) - 1), 2.6);
+  // 山脈: リッジノイズ 3 系統 × 存在マスク（2026-11-07 A-1: 2→3oct 化＋波長 3.8km の尖稜 r3。
+  // 硬い尾根・V 谷をリアルタイム予算内で。GLSL reliefV と完全一致必須——物理/配置が追随する）
+  const r1 = Math.pow(1 - Math.abs(2 * fbm(wx * 0.00013 + 21.3, wz * 0.00013 + 5.9, 3) - 1), 2.2);
+  const r2 = Math.pow(1 - Math.abs(2 * fbm(wx * 0.00009 + 40.7, wz * 0.00009 + 17.2, 3) - 1), 2.6);
+  const r3 = Math.pow(1 - Math.abs(2 * fbm(wx * 0.00026 + 61.3, wz * 0.00026 + 33.7, 3) - 1), 3.1);
   const mask = smoothstep(0.45, 0.68, base);
   const hills = (fbm(x * 0.00028 + 11.7, z * 0.00028 + 2.4, 2) - 0.5) * 260;
   const detail = (valueNoise(x * 0.0011 + 2.2, z * 0.0011 + 6.6) - 0.5) * 22;
   // メソうねり（2026-11-05: 平野にも 3km 波長の緩起伏を与え、距離に応じて稜線がずれて
   // 見えるようにする。GLSL reliefV と完全一致必須——flicker テストが検証）
   const swell = (fbm(x * 0.00035 + 8.3, z * 0.00035 + 4.1, 2) - 0.5) * 150;
-  return (base - 0.31) * 900 + (r1 * 1900 + r2 * 1100) * mask + hills + detail + swell;
+  return (base - 0.31) * 900 + (r1 * 1900 + r2 * 1100 + r3 * 300) * mask + hills + detail + swell;
 }
 
 /**
@@ -177,13 +179,14 @@ float reliefV(vec2 p) {
     fbm2(p * 0.000021 + vec2(5.2, 1.3), 2) - 0.5,
     fbm2(p * 0.000021 + vec2(9.1, 4.4), 2) - 0.5));
   float base = fbm2(wp * 0.000045 + vec2(3.1, 7.7), 3);
-  float r1 = pow(1.0 - abs(2.0 * fbm2(wp * 0.00013 + vec2(21.3, 5.9), 2) - 1.0), 2.2);
-  float r2 = pow(1.0 - abs(2.0 * fbm2(wp * 0.00009 + vec2(40.7, 17.2), 2) - 1.0), 2.6);
+  float r1 = pow(1.0 - abs(2.0 * fbm2(wp * 0.00013 + vec2(21.3, 5.9), 3) - 1.0), 2.2);
+  float r2 = pow(1.0 - abs(2.0 * fbm2(wp * 0.00009 + vec2(40.7, 17.2), 3) - 1.0), 2.6);
+  float r3 = pow(1.0 - abs(2.0 * fbm2(wp * 0.00026 + vec2(61.3, 33.7), 3) - 1.0), 3.1);
   float mask = smoothstep(0.45, 0.68, base);
   float hills = (fbm2(p * 0.00028 + vec2(11.7, 2.4), 2) - 0.5) * 260.0;
   float detail = (vnoise(p * 0.0011 + vec2(2.2, 6.6)) - 0.5) * 22.0;
   float swell = (fbm2(p * 0.00035 + vec2(8.3, 4.1), 2) - 0.5) * 150.0;
-  return (base - 0.31) * 900.0 + (r1 * 1900.0 + r2 * 1100.0) * mask + hills + detail + swell;
+  return (base - 0.31) * 900.0 + (r1 * 1900.0 + r2 * 1100.0 + r3 * 300.0) * mask + hills + detail + swell;
 }
 float flatMaskV(vec2 p) {
     float fl = 0.0;
@@ -293,7 +296,21 @@ vec3 terrainColorV(vec3 camPos) {
       col *= 0.962 + 0.076 * vnoise(vTXZ * 0.0195 + vec2(7.7, 1.3));
     }
     float rock = clamp((slope - 0.22) / 0.40, 0.0, 1.0) * 0.9 + clamp((h - 620.0) / 520.0, 0.0, 1.0) * 0.8;
-    col = mix(col, cRock, clamp(rock, 0.0, 1.0));
+    rock = clamp(rock, 0.0, 1.0);
+    // A-3: 岩盤は高さ帯の地層ゆらぎで暖/寒の岩色を分ける（ベタ塗り感の排除）
+    float band = 0.5 + 0.5 * sin(h * 0.038 + nA * 4.2);
+    col = mix(col, mix(cRock, vec3(0.353, 0.302, 0.255), band * 0.75), rock);
+    // A-2: 侵食溝（色のみ。高度は不変 → 物理/配置に無影響。7.4km 外は打ち切り）
+    float erQ = (1.0 - smoothstep(4200.0, 7400.0, distC)) * nearQ * smoothstep(6.0, 60.0, h) * (1.0 - af);
+    if (erQ > 0.02) {
+      float er = vnoise(vTXZ * 0.042 + vec2(13.7, 4.2));
+      float er2 = vnoise(vTXZ * 0.0106 + vec2(8.8, 2.5));
+      float rill = smoothstep(0.56, 0.74, er) * (0.35 + 0.65 * er2) * clamp(slope * 4.0, 0.0, 1.0);
+      col *= mix(1.0, 0.865, rill * 0.8 * erQ);
+      col *= mix(1.0, 0.955 + 0.09 * er2, erQ * 0.8);
+    }
+    // A-4: 谷底の収斂影（既存の低周波 nA 帯域を再利用。采样増ゼロの近似 AO）
+    col *= 1.0 - 0.09 * (1.0 - smoothstep(45.0, 300.0, h)) * smoothstep(0.30, 0.56, nA);
     // 雪は稜線級（1750m 起）のみ・北向き斜面で残る。ゆらぎでツルテにしない
     float snowNoise = 0.92 + 0.10 * vnoise(vTXZ * 0.0016 + vec2(3.7, 8.2)) * nearQ;
     float snowLine = 1750.0 - 320.0 * (1.0 - clamp(vTN.z * 0.5 + 0.5, 0.0, 1.0));
@@ -408,7 +425,7 @@ function buildLevel(cfg: LevelCfg, nearSeg: number): Level {
       .replace('#include <common>', '#include <common>\n' + GLSL_LIB + '\n' + GLSL_FS_COLOR)
       .replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb = terrainColorV(cameraPosition);\n  diffuseColor.rgb *= 1.0 + (gDet - 0.5) * vec3(0.44, 0.34, 0.26) * gDetQ;')
       .replace('#include <clipping_planes_fragment>',
-               '#include <clipping_planes_fragment>\nif (vTH < -3.0) discard;\n{ gDetQ = 1.0 - smoothstep(300.0, 1450.0, length(cameraPosition - vec3(vTXZ.x, vTH, vTXZ.y)));\n  gDet = texture2D(uDetail, vTXZ * (1.0 / 30.0)).rgb; }')
+               '#include <clipping_planes_fragment>\nif (vTH < -3.0) discard;\n{ gDetQ = 1.0 - smoothstep(320.0, 2600.0, length(cameraPosition - vec3(vTXZ.x, vTH, vTXZ.y)));\n  gDet = texture2D(uDetail, vTXZ * (1.0 / 30.0)).rgb; }')
       .replace('#include <normal_fragment_begin>',
                '#include <normal_fragment_begin>\nif (gDetQ > 0.01 && vTH > -2.0) {\n  float eD = 0.0533333;\n  vec2 duv = vTXZ * (1.0 / 30.0);\n  float hx = texture2D(uDetail, duv + vec2(eD, 0.0)).r - texture2D(uDetail, duv - vec2(eD, 0.0)).r;\n  float hz = texture2D(uDetail, duv + vec2(0.0, eD)).r - texture2D(uDetail, duv - vec2(0.0, eD)).r;\n  vec3 nW = (inverse(viewMatrix) * vec4(normal, 0.0)).xyz;\n  nW += vec3(-hx, 0.0, -hz) * 2.6 * gDetQ;\n  normal = normalize((viewMatrix * vec4(nW, 0.0)).xyz);\n}')
       .replace('#include <fog_fragment>',
