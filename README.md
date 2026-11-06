@@ -172,8 +172,8 @@ node scripts/shots.mjs          # スクリーンショット検証
 | 項目 | 内容 |
 |---|---|
 | 前提確認 | 実行時の外部取得なし（fetch/XHR/SW/localStorage ゼロ、音声も手続き生成）→ サーバー不要で成立。`vite.config` は `base:'./'` 済み（サブパスの GitHub Pages 対応） |
-| **デプロイ用 zip** | `web/` 直下（index.html+assets）を **Netlify Drop / Cloudflare Pages / GitHub Pages** に置くだけ（Drop は zip ごとドラッグ可）。同梱成果物: `deploy/airliner-sim-static.zip`（178KB、`cd web && zip -r ../deploy/airliner-sim-static.zip .` で再生成可） |
-| **単一HTML（file:// 可）** | `node scripts/inline-single.mjs` → `web-single/index.html`（641KB、JS/CSS インライン）。PC のブラウザでダブルクリック起動・オフライン動作。**iOS Safari ではローカル HTML を実行できない点に注意**（iPhone で使うなら静的ホストの URL を開く） |
+| **デプロイ用 zip** | `web/` 直下（index.html+assets）を **Netlify Drop / Cloudflare Pages / GitHub Pages** に置くだけ（Drop は zip ごとドラッグ可）。同梱成果物: `deploy/airliner-sim-static.zip`（約 8.6MB — 侵食ベイク 8.4MB 同梱。`cd web && zip -r ../deploy/airliner-sim-static.zip .` で再生成） |
+| ~~単一HTML（file:// 可）~~ | **2026-11-07b で廃止**: 侵食ベイク（`terrain-bake.bin`）の外部テクスタ化と単一 HTML が両立しないため、`web-single/` は削除済み（利用者は静的ホスト URL 運用に統一）。`scripts/inline-single.mjs` は参考のため残置（ベイクなし版しか作れない） |
 | 検証 | file:// 実測 PASS（headless Chromium: menu rendered / state=flying / JS errors 0）。`</script>` 早期閉じエスケープと `String.replace` の `$&` 展開バグ検知ガードつき（実際に関数置換で修正） |
 | 運用変更 | 静的ホストに常設後は serve.mjs/tunnel/watchdog は退役可。現在の暫定URL: `TUNNEL_URL.txt` 参照（trycloudflare は ephemeral） |
 | 恒久ホスト自動発行の試み | surge.sh は CLI デプロイ成功後も**新規アカウントのメール認証ゲート（403）**で公開不可。使い捨てメールドメイン（mail.tm 等）には認証メールが配信されず（8分×2アカウントで不達確認）。`netlify-cli` の `--allow-anonymous` も廃止済み（v17 で unknown option）。Netlify Drop / GitHub Pages はブラウザ側のログイン操作が必要なため手動運用（zip 投入で 1 分） |
@@ -214,7 +214,17 @@ node scripts/shots.mjs          # スクリーンショット検証
 - **A-5 法線ディテール延伸**: uDetail(30m) 適用 1450→2600m。中距離のプラスチック感低減
 - **性能**: 頂点 relief は oct+1×2+新規1（≈+27% 頂点ノイズ、GPU 変位のみ）。断片 +2〜3 vnoise（距離ゲート付）。実シャドウマップ・メッシュ分割は不変
 - **検証**: tsc✓ build✓ / physics **10/10**（CPU=GLSL 一致の接地）/ autopilot **30/30** / browser-smoke **30/30**（初回 29/30 は既知の AP タイミング flake、再走査 GREEN）/ before-after 同一機位ショット `screenshots/v13/{pre,post}-green-low.png`（滑らかなコブ→尖った稜線+地層バンド+溝の陰影）
-- **未踏**: B（ビルド時侵食シミュレーションで heightmap/normal/albedo ベイク、単一 HTML 制約と両立不能）は効果確認後の判断として保留
+- **未踏→達成**: B（ビルド時侵食ベイク）は次項 2026-11-07b として実装済（単一 HTML は同日廃止承認）
+
+#### 2026-11-07b 地形リアル化 B（ビルド時侵食ベイク）— 単一 HTML を廃止
+
+- **方式**: `scripts/bake-erosion.mjs` が node で地形関数（`reliefRaw`/`flatMaskRaw` をエクスポート化）を直接呼び、**D8 流域蓄積 + 流水侵食**（蓄積場を 2 回 blur して谷幅 250〜600m に太ばせ V 谷を刻む）と**勾配折れ曲がり堆積**（扇状地）を 1024² グリッド（1 texel=44m、±22.5km）で解く。実行 1.4 秒、`public/terrain-bake.bin`（8.4MB）へベイク。ビルドで `web/terrain-bake.bin` にコピー
+- **エンコード**: uint32 = low16 に δ 高度（(m×256)+32768、±128m 範囲・1/256m 精度）+ high16 に wear。別枠 RGBA8 = 法線ティルト.xy / wear / 堆積量。**CPU `terrainHeight` と GLSL `terrH` は同一の手動バイリニア復号式**（v10-C の教訓遵守 — 機体接地時の高さゆらぎが出ない）
+- **シェーダ**: 頂点 = texelFetch×4（バイリニア）で実地形に掘削/盛土。断片 = uShade 1 fetch で (a) 実光の法線ティルト（6.5〜14km でフェード）(b) 谷底の堆積色減光 (c) 浸食崖の岩盤露出 (d) 扇状地の砂礫色。ディテール法線と同一逆変換に統合し追加変換ゼロ
+- **不変保証**: 空港/滑走路は flatMask<0.02 の域で δ=0 を**blur 後にも再マスク**（検証 `airportLeak=0`）。海岸線とタイル端は smoothstep 窓。河川・水面・CFG は既有一致式のまま
+- **単一 HTML 廃止（承認済）**: テクスチャ外部化のため `web-single/` を削除し、**配信は `web/` フォルダ（zip 同梱）のみ**。`node scripts/inline-single.mjs` は残るが再生成不要。起動時 `main.ts` が `await loadTerrainBake()`（404/失敗は catch → 手生成地形のみで無害に劣化）。vite/ts target を es2022 に（top-level await 許可）
+- **検証**: tsc✓ build✓ / physics **10/10**・autopilot **30/30**・browser-smoke **30/30**（いずれもベイク込みビルド。JS エラー 0 = usampler2D/GLSL3 経路が WebGL2 で健全）/ 最大掘削点 (-15994,3454) のブラウザ `terrainHeight`=1468.43 は CPU 期待値 1521.06−52.63 と一致 / before-after 同一相対機位 `screenshots/v13/{pre,post}-valley2-near.png`（なめらかなコブ → 掘削溝の陰影+堆積扇+表面のざらつき、targetH −32m）
+- **再生成手順**: `relief`/ノイズ系を変えたら `node scripts/bake-erosion.mjs && npm run build`（bake 内に検証アサーション。失敗時 exit 1）
 
 #### 2026-11-06b 全画面表示（Fullscreen API）
 
