@@ -46,6 +46,9 @@ export type FlightMode = 'free' | 'demo';
 
 const UP_Y = new THREE.Vector3(0, 1, 0);
 const QUAT_RX90 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+const BLOB_NOR = new THREE.Vector3();
+const QUAT_TILT = new THREE.Quaternion();
+const QUAT_LAYOUT = new THREE.Quaternion();
 
 export class Game {
   state: GameState = 'menu';
@@ -664,16 +667,23 @@ export class Game {
           const hl = Math.hypot(sd.x, sd.z) || 1;
           const ux = sd.x / hl, uz = sd.z / hl;
           const bx = pp.x - ux * len, bz = pp.z - uz * len;
-          const gy = Math.max(terrainHeight(bx, bz), WORLD.SEA_LEVEL) + 0.5;
+          const gy = Math.max(terrainHeight(bx, bz), WORLD.SEA_LEVEL) + 0.7;
           gb.position.set(bx, gy, bz);
           const k = 1 - altP / 400;
           const r = this.playerSpec.wingspan * 0.42 + altP * 0.10;
           gb.scale.set(r * (1 + len / (r * 2.4)), r * 0.86, 1);
           const ang = Math.atan2(-uz, ux);
-          gb.quaternion.setFromAxisAngle(UP_Y, ang).multiply(QUAT_RX90);
-          const soft = 1 / (1 + len * 0.0035);
+          // 2026-11-06 v12: 影を地盤の傾斜へ倒す（起伏上で浮き・めり込み防止）。両視点で自然
+          BLOB_NOR.set(
+            -(terrainHeight(bx + 90, bz) - terrainHeight(bx - 90, bz)) / 180,
+            1,
+            -(terrainHeight(bx, bz + 90) - terrainHeight(bx, bz - 90)) / 180
+          ).normalize();
+          QUAT_TILT.setFromUnitVectors(UP_Y, BLOB_NOR);
+          gb.quaternion.copy(QUAT_TILT).multiply(QUAT_LAYOUT.setFromAxisAngle(UP_Y, ang).multiply(QUAT_RX90));
+          const soft = 0.62 + 0.38 / (1 + len * 0.0035);
           const day = 0.45 + 0.55 * Math.min(elev / 0.5, 1);
-          (gb.material as THREE.MeshBasicMaterial).opacity = (0.09 + 0.27 * k * k) * soft * day;
+          (gb.material as THREE.MeshBasicMaterial).opacity = (0.12 + 0.34 * k * k) * soft * day;
           gb.visible = true;
         } else gb.visible = false;
       }

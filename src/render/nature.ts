@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { makeRandom, clamp } from '../core/math.js';
 import { terrainHeight } from './terrain.js';
 import { AIRPORTS } from '../config/airports.js';
+import { roadsidePts } from './city.js';
 import { valueNoise } from '../core/math.js';
 
 export function buildNature(scene: THREE.Scene, count: number): THREE.Group {
@@ -64,12 +65,7 @@ export function buildNature(scene: THREE.Scene, count: number): THREE.Group {
     foliage.setColorAt(placed, color);
     placed++;
   }
-  foliage.count = placed;
-  trunks.count = placed;
-  foliage.instanceMatrix.needsUpdate = true;
-  trunks.instanceMatrix.needsUpdate = true;
-  if (foliage.instanceColor) foliage.instanceColor.needsUpdate = true;
-
+  // 2026-11-06 v12: count 確定は全ループ後へ移動（v11 はこの位置で確定し環状帯が未表示だった）
   // ===== 空港环岛の樹林帯（進入・離陸の低空で目視できる高度目安。滑走路軸方向は避ける）=====
   for (const ap of AIRPORTS) {
     const N = 44;
@@ -95,6 +91,28 @@ export function buildNature(scene: THREE.Scene, count: number): THREE.Group {
       placed++;
     }
   }
+  // ===== v12: 幹線道路沿いの街路樹（道路の連続性を緑で補強）=====
+  for (const rp of roadsidePts) {
+    if (placed >= count) break;
+    const y = terrainHeight(rp.x, rp.z);
+    if (y < 0.5) continue;
+    dummy.position.set(rp.x, y - 0.5, rp.z);
+    dummy.rotation.y = rand() * Math.PI * 2;
+    dummy.scale.setScalar(rp.s);
+    dummy.updateMatrix();
+    foliage.setMatrixAt(placed, dummy.matrix);
+    trunks.setMatrixAt(placed, dummy.matrix);
+    const tint = 0.8 + rand() * 0.3;
+    color.setRGB(tint * 0.72, tint, tint * 0.7);
+    foliage.setColorAt(placed, color);
+    placed++;
+  }
+  foliage.count = placed;
+  trunks.count = placed;
+  foliage.instanceMatrix.needsUpdate = true;
+  trunks.instanceMatrix.needsUpdate = true;
+  if (foliage.instanceColor) foliage.instanceColor.needsUpdate = true;
+
   group.add(foliage, trunks);
   scene.add(group);
   return group;

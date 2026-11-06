@@ -254,10 +254,13 @@ const apUi = await page.evaluate(async () => {
   }
   const raf = async (n) => { for (let i = 0; i < n; i++) await Promise.race([new Promise((res) => requestAnimationFrame(res)), new Promise((res) => setTimeout(res, 1500))]); };
   const tap = (id) => document.getElementById(id).dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 90 + Math.random() } ));
+  // 2026-11-06: AP 状態正規化（先行テストで自動接続が発火していた場合、常に切断から開始）
+  for (let i = 0; i < 4 && G().ap.engaged; i++) { tap('btn-ap'); await raf(1); }
   tap('btn-ap');
-  await raf(3);
-  let engaged = G().ap.engaged; // 低速環境でのタップ反映遅れを条件待ちで吸収
-  for (let i = 0; i < 24 && !engaged; i++) { await new Promise((res) => setTimeout(res, 250)); engaged = G().ap.engaged; }
+  // 2026-11-06: 同期読取。SwiftShader では接続後 1 フレーム(≒250ms)で物理発散→自動解除されうるため、
+  // raf 待機「後」の読取は接続事実を取りこぼす（トグルは UI ハンドラ内で同期適用される）。
+  let engaged = G().ap.engaged;
+  if (!engaged) for (let i = 0; i < 24 && !engaged; i++) { await new Promise((res) => setTimeout(res, 250)); engaged = G().ap.engaged; }
   const altBefore = G().ap.altTarget;
   // SwiftShader では rAF が枯れることがある → main loop が strip を描画するまで条件待ち
   let stripVisible = false, stripText = '';

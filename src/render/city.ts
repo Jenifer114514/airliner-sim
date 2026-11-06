@@ -11,6 +11,9 @@ import { makeBuildingTexture, makeBuildingEmissiveTexture } from './textures.js'
 /** 建物当たり判定（main の衝突爆発用）。x,z=中心 r=半径 top=陸部高さ */
 export const buildingColliders: { x: number; z: number; r: number; top: number }[] = [];
 
+// 2026-11-06 v12: 幹線道路沿いの街路樹アンカー（buildCity で充填 → nature が実体化）
+export const roadsidePts: Array<{ x: number; z: number; s: number }> = [];
+
 export function buildCity(scene: THREE.Scene, count: number): THREE.Group {
   buildingColliders.length = 0;
   const group = new THREE.Group();
@@ -37,11 +40,23 @@ export function buildCity(scene: THREE.Scene, count: number): THREE.Group {
   const CX = 7800;
   const CZ = -3200;
 
+  // 2026-11-06 v12: 格子整合 — 建物をブロック辺（=街道）へスナップし、内部は空地のままにする
+  const CELL = 210;
   for (let i = 0; i < count; i++) {
     const angle = rand() * Math.PI * 2;
     const radius = 600 + Math.pow(rand(), 0.7) * 3400;
-    const x = CX + Math.cos(angle) * radius;
-    const z = CZ + Math.sin(angle) * radius * 0.8;
+    const bx = CX + Math.cos(angle) * radius;
+    const bz = CZ + Math.sin(angle) * radius * 0.8;
+    const bcx = Math.round(bx / CELL) * CELL, bcz = Math.round(bz / CELL) * CELL; // ブロック中心
+    const ed = rand() < 0.5 ? 0 : 1; // 0=±x 辺に面する 1=±z 辺
+    const sgn = (ed === 0 ? Math.sign(bx - bcx) : Math.sign(bz - bcz)) || 1;
+    const along = (rand() - 0.5) * (CELL - 70); // 街道に沿った位置
+    const x = ed === 0 ? bcx + sgn * (CELL / 2 - 26) : bcx + along;
+    const z = ed === 1 ? bcz + sgn * (CELL / 2 - 26) : bcz + along;
+    // 外周リングロードの回廊には建てない（道路の連続性を保つ）
+    const rxx = (x - CX) / 1.24, rzz = z - CZ;
+    const rt = 2450 + Math.sin(Math.atan2(rzz, rxx) * 5 + 1.3) * 190;
+    if (Math.abs(Math.hypot(rxx, rzz) - rt) < 62) continue;
     const y = terrainHeight(x, z);
     if (y < 4) continue; // 海・砂浜には置かない
 
@@ -52,8 +67,8 @@ export function buildCity(scene: THREE.Scene, count: number): THREE.Group {
     const w = suburb ? 13 + rand() * 16 : 26 + rand() * 38;
     const d = suburb ? 13 + rand() * 16 : 26 + rand() * 38;
     dummy.position.set(x, y - 1, z);
-    dummy.rotation.y = rand() * Math.PI;
-    dummy.scale.set(w, h, d);
+    dummy.rotation.y = (rand() - 0.5) * 0.1; // 街道へ整列（v12）
+    if (ed === 0) dummy.scale.set(d, h, w); else dummy.scale.set(w, h, d);
     dummy.updateMatrix();
     mesh.setMatrixAt(i, dummy.matrix);
     const tint = 0.72 + rand() * 0.28;
@@ -146,12 +161,45 @@ export function buildCity(scene: THREE.Scene, count: number): THREE.Group {
   }
   roads.push([new THREE.Vector2(CX - 2260, CZ + 420), new THREE.Vector2(1200, -1000), new THREE.Vector2(-1400, -2500)]);
   roads.push([new THREE.Vector2(CX + 1250, CZ + 1560), new THREE.Vector2(4100, 3600), new THREE.Vector2(2900, 6300)]);
+  // 2026-11-06 v12: 格子街路（街道=ブロック境界。建物スナップと同一系で整合）
+  const gridRoadStart = roads.length;
+  {
+    const half = 3650;
+    const inside = (px: number, pz: number) =>
+      Math.hypot(px - CX, (pz - CZ) / 0.8) > 640 && Math.hypot(px - CX, (pz - CZ) / 0.8) < half;
+    const n0 = Math.round((CX - half) / CELL), n1 = Math.round((CX + half) / CELL);
+    const m0 = Math.round((CZ - half * 0.8) / CELL), m1 = Math.round((CZ + half * 0.8) / CELL);
+    for (let n = n0; n <= n1; n++) {
+      const px = (n + 0.5) * CELL;
+      const poly: THREE.Vector2[] = [];
+      let run = 0;
+      for (let k = m0 - 2; k <= m1 + 2; k++) {
+        const pz = (k + 0.5) * CELL;
+        if (inside(px, pz)) { poly.push(new THREE.Vector2(px, pz)); run = 0; }
+        else if (++run > 2 && poly.length) { break; }
+      }
+      if (poly.length > 2) roads.push(poly);
+    }
+    for (let m = m0; m <= m1; m++) {
+      const pz = (m + 0.5) * CELL;
+      const poly: THREE.Vector2[] = [];
+      let run = 0;
+      for (let k = n0 - 2; k <= n1 + 2; k++) {
+        const px = (k + 0.5) * CELL;
+        if (inside(px, pz)) { poly.push(new THREE.Vector2(px, pz)); run = 0; }
+        else if (++run > 2 && poly.length) { break; }
+      }
+      if (poly.length > 2) roads.push(poly);
+    }
+  }
 
   const rPos: number[] = [];
   const rIdx: number[] = [];
-  const villagePts: Array<[number, number, number]> = []; // x,z,進行角（沿道集落の配置基準）
+  // x,z,進行角, 行商人列 OK（v12: 格子街路は建物行が既にあるので村を作らない）
+  const villagePts: Array<[number, number, number, boolean]> = [];
   let vBase = 0;
-  for (const poly of roads) {
+  for (let ri = 0; ri < roads.length; ri++) {
+    const poly = roads[ri];
     // 120m 間隔で再サンプリング
     const pts: THREE.Vector2[] = [];
     for (let i = 0; i < poly.length - 1; i++) {
@@ -165,7 +213,13 @@ export function buildCity(scene: THREE.Scene, count: number): THREE.Group {
       const d = new THREE.Vector2(next.x - prev.x, next.y - prev.y).normalize();
       const nrm = new THREE.Vector2(-d.y, d.x);
       const hw = 11;
-      if (i % 2 === 0) villagePts.push([pts[i].x, pts[i].y, Math.atan2(d.y, d.x)]);
+      if (i % 2 === 0) villagePts.push([pts[i].x, pts[i].y, Math.atan2(d.y, d.x), ri < gridRoadStart]);
+      // v12: 街路樹アンカー（約720m 間隔・両側 27m: 縁石 11m と建物前線 26m の間）
+      if (i % 6 === 2 && roadsidePts.length < 1500) {
+        for (const sd2 of [-1, 1] as const) {
+          roadsidePts.push({ x: pts[i].x + nrm.x * sd2 * 27, z: pts[i].y + nrm.y * sd2 * 27, s: 0.72 + rand() * 0.55 });
+        }
+      }
       const y = Math.max(terrainHeight(pts[i].x, pts[i].y) + 0.35, -2.6);
       rPos.push(pts[i].x + nrm.x * hw, y, pts[i].y + nrm.y * hw);
       rPos.push(pts[i].x - nrm.x * hw, y, pts[i].y - nrm.y * hw);
@@ -186,29 +240,30 @@ export function buildCity(scene: THREE.Scene, count: number): THREE.Group {
   group.add(roadMesh);
 
   // ===== 沿道集落（道路に沿って連続する低層家屋。中距離の構造手掛かり）=====
-  const VMAX = 340;
+  const VMAX = 620; // v12: リング沿い低層列ぶん扩容（それでも 1 draw call）
   const vMesh = new THREE.InstancedMesh(geo, mat, VMAX);
   vMesh.name = 'village';
   vMesh.castShadow = true;
   vMesh.receiveShadow = true;
   {
     let vi = 0;
-    for (const [vx, vz, va] of villagePts) {
+    for (const [vx, vz, va, townOK] of villagePts) {
       if (vi >= VMAX - 2) break;
-      if (Math.hypot(vx - CX, vz - CZ) < 4100) continue; // 都心と重複させない
+      const inner = Math.hypot(vx - CX, vz - CZ) < 4100; // v12: 幹線(リング・放射)沿いは低層行商人列で連続化
+      if (inner && !townOK) continue;
       let nearAp = false;
       for (const ap of AIRPORTS) if (Math.hypot(vx - ap.center.x, vz - ap.center.z) < 3700) nearAp = true;
       if (nearAp) continue;
       for (const side of [-1, 1] as const) {
         if (vi >= VMAX) break;
-        if (rand() > 0.6) continue;
-        const offd = 56 + rand() * 120;
+        if (!inner && rand() > 0.6) continue;
+        const offd = (inner ? 62 : 56) + rand() * (inner ? 42 : 120);
         const nx = -Math.sin(va) * side, nz = Math.cos(va) * side;
         const x = vx + nx * offd + (rand() - 0.5) * 44;
         const z = vz + nz * offd + (rand() - 0.5) * 44;
         const y = terrainHeight(x, z);
-        if (y < 4) continue;
-        const hh = 7 + rand() * 16, ww = 12 + rand() * 15, dd = 12 + rand() * 15;
+        if (y < (inner ? 2.5 : 4)) continue;
+        const hh = inner ? 9 + rand() * 15 : 7 + rand() * 16, ww = 12 + rand() * 15, dd = 12 + rand() * 15;
         dummy.position.set(x, y - 1, z);
         dummy.rotation.set(0, va + (rand() - 0.5) * 0.3, 0);
         dummy.scale.set(ww, hh, dd);
