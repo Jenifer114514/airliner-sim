@@ -6,7 +6,7 @@ export default defineConfig({
   base: './',
   build: {
     outDir: 'web',
-    target: 'es2020',
+    target: 'es2022',
     assetsInlineLimit: 0,
     chunkSizeWarningLimit: 1200
   },

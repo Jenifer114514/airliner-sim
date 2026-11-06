@@ -93,10 +93,122 @@ function seaMask(x: number, z: number): number {
   return smoothstep(7000, 12000, (x + z) * 0.7071);
 }
 
+// ベイクスクリプト（scripts/bake-erosion.mjs）が node から読むための素の場関数。
+export { relief as reliefRaw, flatMask as flatMaskRaw, seaMask as seaMaskRaw };
+
+// ═════════════════ v15-B: 侵食ベイク ═════════════════
+// scripts/bake-erosion.mjs がビルド時に D8 流域侵食を解き、public/terrain-bake.bin
+// （ヘッダ32B + N²×uint32[R32UI: low16=(δ+128)*256 / high16=wear] + N²×RGBA8
+//  [傾き.xy / wear / 堆積]）へベイクする。ここではそれを 1枚のテクスタへ展開し、
+// CPU（配置・物理）と GLSL（頂点変位）が**同一の手動バイリニア式**で参照する
+// （v10-C の教訓: CPU=GPU 一致は式レベルで担保しないと機体振動になる）。
+// .bin 不在時は 1×1 無効テーブルで従来手順生成のみ（fetch 失敗＝無害な劣化）。
+export interface TerrainBakeMeta { N: number; cell: number; min: number; }
+let gBake: { meta: TerrainBakeMeta; ero: Uint32Array; shade: Uint8Array } | null = null;
+let gBakeEroTex: THREE.DataTexture | null = null;
+let gBakeShadeTex: THREE.DataTexture | null = null;
+
+/** ベイク済みか（マテリアルの programCacheKey / GLSL 分岐用） */
+export const terrainBakeReady = (): boolean => gBake !== null;
+export const terrainBakeMeta = (): TerrainBakeMeta | null => (gBake ? gBake.meta : null);
+
+function decodeBake(buf: ArrayBuffer): void {
+  const dv = new DataView(buf);
+  const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
+  if (magic !== 'ERA1' || buf.byteLength < 32) throw new Error('bake magic/size');
+  const N = dv.getUint32(4, true);
+  const cell = dv.getFloat64(16, true);
+  const min = dv.getFloat64(24, true);
+  const need = 32 + N * N * 4 * 2;
+  if (buf.byteLength < need) throw new Error('bake truncated');
+  gBake = {
+    meta: { N, cell, min },
+    ero: new Uint32Array(buf, 32, N * N),
+    shade: new Uint8Array(buf, 32 + N * N * 4, N * N * 4),
+  };
+  const eT = new THREE.DataTexture(gBake.ero, N, N, THREE.RedIntegerFormat, THREE.UnsignedIntType);
+  eT.minFilter = eT.magFilter = THREE.NearestFilter;
+  eT.generateMipmaps = false;
+  eT.needsUpdate = true;
+  const sT = new THREE.DataTexture(gBake.shade, N, N, THREE.RGBAFormat, THREE.UnsignedByteType);
+  sT.minFilter = sT.magFilter = THREE.LinearFilter;
+  sT.generateMipmaps = false;
+  sT.needsUpdate = true;
+  gBakeEroTex = eT;
+  gBakeShadeTex = sT;
+}
+
+/** ブート時に一度 await すること（main.ts）。失敗/不在は resolve（手生成のみで継続）。 */
+export async function loadTerrainBake(): Promise<void> {
+  if (typeof window === 'undefined' || typeof fetch !== 'function' || gBake) return;
+  try {
+    const url = (import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? './';
+    const res = await fetch(url + 'terrain-bake.bin', { cache: 'force-cache' });
+    if (!res.ok) return;
+    decodeBake(await res.arrayBuffer());
+  } catch {
+    /* ベイク無し運用（開発サーバー直叩き等）でもゲームは成立する */
+  }
+}
+
+/** world [m] → テクセル中心基準の格子座標 u（0..N） */
+function bakeU(v: number): number {
+  const m = gBake!.meta;
+  return (v - m.min) / m.cell - 0.5;
+}
+
+/** δ[x,z]（CPU 版・手動バイリニア）。タイル外 texel は寄与 0（境界窓で δ 側が既に 0）。 */
+export function terrainBakeDelta(x: number, z: number): number {
+  if (!gBake) return 0;
+  const { N, ero } = { N: gBake.meta.N, ero: gBake.ero };
+  const u = bakeU(x), v = bakeU(z);
+  const i0 = Math.floor(u), j0 = Math.floor(v);
+  const fx = u - i0, fy = v - j0;
+  const dec = (i: number, j: number): number =>
+    i < 0 || j < 0 || i >= N || j >= N ? 0 : (ero[j * N + i] & 0xffff) / 256 - 128;
+  return dec(i0, j0) * (1 - fx) * (1 - fy) + dec(i0 + 1, j0) * fx * (1 - fy)
+       + dec(i0, j0 + 1) * (1 - fx) * fy + dec(i0 + 1, j0 + 1) * fx * fy;
+}
+
+/** 法線ティルト（CPU 版・中央差分。スキャン/検査用 — レンダリング側は GPU uShade）。 */
+export function terrainBakeTilt(x: number, z: number): { nx: number; nz: number; wear: number } {
+  if (!gBake) return { nx: 0, nz: 0, wear: 0 };
+  const e = 12;
+  const k = (terrainBakeDelta(x + e, z) - terrainBakeDelta(x - e, z)) / (2 * e);
+  const m = (terrainBakeDelta(x, z + e) - terrainBakeDelta(x, z - e)) / (2 * e);
+  return { nx: -k, nz: -m, wear: bakeWear(x, z) };
+}
+
+function bakeWear(x: number, z: number): number {
+  if (!gBake) return 0;
+  const m = gBake.meta;
+  const i = Math.round((x - m.min) / m.cell - 0.5), j = Math.round((z - m.min) / m.cell - 0.5);
+  if (i < 0 || j < 0 || i >= m.N || j >= m.N) return 0;
+  return gBake.shade[(j * m.N + i) * 4 + 2] / 255;
+}
+
+/** ユーニフォーム詰替用（未ロード時は 1×1 無効テーブル → delta 0・ティルト 0） */
+const dummyEro = (): THREE.DataTexture =>
+  (gBakeEroTex ?? (() => {
+    const t = new THREE.DataTexture(new Uint32Array([32768]), 1, 1, THREE.RedIntegerFormat, THREE.UnsignedIntType);
+    t.minFilter = t.magFilter = THREE.NearestFilter;
+    t.generateMipmaps = false;
+    t.needsUpdate = true;
+    return t;
+  })());
+const dummyShade = (): THREE.DataTexture =>
+  (gBakeShadeTex ?? (() => {
+    const t = new THREE.DataTexture(new Uint8Array([128, 128, 0, 0]), 1, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
+    t.minFilter = t.magFilter = THREE.LinearFilter;
+    t.generateMipmaps = false;
+    t.needsUpdate = true;
+    return t;
+  })());
+
 /** 河川彫り込みなしの地形高（河川水面リボンの水位計算用） */
 export function terrainBase(x: number, z: number): number {
   const f = flatMask(x, z);
-  return relief(x, z) * f - seaMask(x, z) * 520 * f;
+  return (relief(x, z) + terrainBakeDelta(x, z)) * f - seaMask(x, z) * 520 * f;
 }
 
 /**
@@ -106,7 +218,7 @@ export function terrainBase(x: number, z: number): number {
  */
 export function terrainHeight(x: number, z: number): number {
   const f = flatMask(x, z);
-  return (relief(x, z) - riverCarve(x, z) * f) * f - seaMask(x, z) * 520 * f;
+  return (relief(x, z) + terrainBakeDelta(x, z) - riverCarve(x, z) * f) * f - seaMask(x, z) * 520 * f;
 }
 
 /** 地面ディテールタイル（遅延生成・全レベル共有） */
@@ -197,9 +309,31 @@ float flatMaskV(vec2 p) {
     return 1.0 - fl;
   }
 float seaMaskV(vec2 p) { return smoothstep(7000.0, 12000.0, (p.x + p.y) * 0.7071); }
+
+// ── v15-B: 侵食ベイク（ビルド時解いた δ-場。CPU terrainBakeDelta と同一の
+//    テクセル中心基準・手動バイリニア。タイル外 texel は 0） ──
+uniform highp usampler2D uEro;      // R32UI: low16=(δ+128)*256 / high16=wear
+uniform mediump vec4 uEroGeo;       // (cell, minX, minZ, N)
+float eroDeltaV(vec2 p) {
+  vec2 u = (p - uEroGeo.yz) / uEroGeo.x - 0.5;
+  ivec2 i0 = ivec2(floor(u));
+  vec2 fr = u - vec2(i0);
+  float acc = 0.0;
+  for (int j = 0; j < 2; j++) {
+    for (int i = 0; i < 2; i++) {
+      ivec2 c = i0 + ivec2(i, j);
+      float w = (i == 1 ? fr.x : 1.0 - fr.x) * (j == 1 ? fr.y : 1.0 - fr.y);
+      if (w > 0.0 && c.x >= 0 && c.y >= 0 && c.x < int(uEroGeo.w) && c.y < int(uEroGeo.w)) {
+        acc += w * (float(texelFetch(uEro, c, 0).r & 65535u) / 256.0 - 128.0);
+      }
+    }
+  }
+  return acc;
+}
+
 float terrH(vec2 p) {
   float f = flatMaskV(p);
-  return (reliefV(p) - riverCarveV(p) * f) * f - seaMaskV(p) * 520.0 * f;
+  return (reliefV(p) + eroDeltaV(p) - riverCarveV(p) * f) * f - seaMaskV(p) * 520.0 * f;
 }
 float terrHBi(vec2 p, float sp) {
   vec2 c = floor(p / sp) * sp;
@@ -251,8 +385,13 @@ varying float vTH;
 varying vec3 vTN;
 varying vec2 vTXZ;
 uniform sampler2D uDetail;
+uniform mediump sampler2D uShade;
 float gDetQ;
 vec3 gDet;
+// v15-B: ベイク法線の有効度（遠方でフェード。1×1 ダミーテーブルでは値 0）
+float bakeQ() {
+  return 1.0 - smoothstep(6500.0, 14000.0, length(cameraPosition - vec3(vTXZ.x, vTH, vTXZ.y)));
+}
 float airfieldMaskV(vec2 p) {
   float m = 0.0;
   for (int i = 0; i < 4; i++) {
@@ -376,6 +515,14 @@ vec3 terrainColorV(vec3 camPos) {
     float mowQ = aq * (1.0 - smoothstep(2600.0, 4600.0, distC));
     col *= mix(1.0, 0.965 + 0.07 * sin(vTXZ.y * 0.2618), mowQ);
   }
+  // v15-B: 侵食の痕跡 — 谷底の堆積色・浸食崖の岩盤露出・扇状地の砂礫（ベイク wear/deposit）。
+  // 滑走路オーバーライドの後ろに置いて空港色を不変に保つ。ダミーテーブルでは b=a=0 で無影響。
+  { vec4 sb = texture2D(uShade, (vTXZ - uEroGeo.yz) / (uEroGeo.x * uEroGeo.w));
+    float wet = sb.b * (1.0 - smoothstep(2400.0, 3800.0, h)) * (1.0 - af);
+    col = mix(col, col * vec3(0.68, 0.72, 0.62), wet * 0.85);
+    col = mix(col, cRock * 0.94, clamp(wet * 1.9 - 0.62, 0.0, 1.0) * smoothstep(0.30, 0.52, slope) * smoothstep(160.0, 420.0, h));
+    col = mix(col, vec3(0.60, 0.562, 0.478), sb.a * (1.0 - smoothstep(2600.0, 3400.0, h)) * 0.8);
+  }
   return col;
 }
 `;
@@ -412,7 +559,11 @@ function buildLevel(cfg: LevelCfg, nearSeg: number): Level {
     uParent: { value: cfg.parent },
     uHalf: { value: cfg.half },
     uMorphW: { value: cfg.morphW },
-    uDetail: { value: detailTex() }
+    uDetail: { value: detailTex() },
+    // v15-B: 侵食ベイク（未ロード時は 1×1 無効テーブル → 従来動作と完全一致）
+    uEro: { value: gBakeEroTex ?? dummyEro() },
+    uShade: { value: gBakeShadeTex ?? dummyShade() },
+    uEroGeo: { value: gBake ? new THREE.Vector4(gBake.meta.cell, gBake.meta.min, gBake.meta.min, gBake.meta.N) : new THREE.Vector4(1, 0, 0, 1) }
   };
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uni, local);
@@ -427,16 +578,17 @@ function buildLevel(cfg: LevelCfg, nearSeg: number): Level {
       .replace('#include <clipping_planes_fragment>',
                '#include <clipping_planes_fragment>\nif (vTH < -3.0) discard;\n{ gDetQ = 1.0 - smoothstep(320.0, 2600.0, length(cameraPosition - vec3(vTXZ.x, vTH, vTXZ.y)));\n  gDet = texture2D(uDetail, vTXZ * (1.0 / 30.0)).rgb; }')
       .replace('#include <normal_fragment_begin>',
-               '#include <normal_fragment_begin>\nif (gDetQ > 0.01 && vTH > -2.0) {\n  float eD = 0.0533333;\n  vec2 duv = vTXZ * (1.0 / 30.0);\n  float hx = texture2D(uDetail, duv + vec2(eD, 0.0)).r - texture2D(uDetail, duv - vec2(eD, 0.0)).r;\n  float hz = texture2D(uDetail, duv + vec2(0.0, eD)).r - texture2D(uDetail, duv - vec2(0.0, eD)).r;\n  vec3 nW = (inverse(viewMatrix) * vec4(normal, 0.0)).xyz;\n  nW += vec3(-hx, 0.0, -hz) * 2.6 * gDetQ;\n  normal = normalize((viewMatrix * vec4(nW, 0.0)).xyz);\n}')
+               '#include <normal_fragment_begin>\nif (vTH > -2.0 && (gDetQ > 0.01 || bakeQ() > 0.01)) {\n  float eD = 0.0533333;\n  vec2 duv = vTXZ * (1.0 / 30.0);\n  float hx = texture2D(uDetail, duv + vec2(eD, 0.0)).r - texture2D(uDetail, duv - vec2(eD, 0.0)).r;\n  float hz = texture2D(uDetail, duv + vec2(0.0, eD)).r - texture2D(uDetail, duv - vec2(0.0, eD)).r;\n  vec4 sb = texture2D(uShade, (vTXZ - uEroGeo.yz) / (uEroGeo.x * uEroGeo.w));\n  vec3 nW = (inverse(viewMatrix) * vec4(normal, 0.0)).xyz;\n  nW += vec3(-hx, 0.0, -hz) * 2.6 * gDetQ;\n  nW += vec3(-(sb.r - 0.5), 0.0, -(sb.g - 0.5)) * 1.5 * bakeQ();\n  normal = normalize((viewMatrix * vec4(nW, 0.0)).xyz);\n}')
       .replace('#include <fog_fragment>',
                '#include <fog_fragment>\n#ifdef USE_FOG\n  float haze = smoothstep(4500.0, 15000.0, vFogDepth) * 0.45 + smoothstep(13000.0, 24000.0, vFogDepth) * 0.55;\n  gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, min(1.0, haze));\n#endif');
   };
-  mat.customProgramCacheKey = () => 'terrain-v2-' + cfg.size;
+  mat.customProgramCacheKey = () => 'terrain-v2-' + cfg.size + (gBake ? '-B' : '-b');
 
   const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
   (depth as unknown as { glslVersion: string }).glslVersion = THREE.GLSL3;
   const localD = {
-    uSnap: local.uSnap, uSpacing: local.uSpacing, uParent: local.uParent, uHalf: local.uHalf, uMorphW: local.uMorphW
+    uSnap: local.uSnap, uSpacing: local.uSpacing, uParent: local.uParent, uHalf: local.uHalf, uMorphW: local.uMorphW,
+    uEro: local.uEro, uEroGeo: local.uEroGeo
   };
   depth.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uni, localD);
@@ -445,7 +597,7 @@ function buildLevel(cfg: LevelCfg, nearSeg: number): Level {
       .replace('#include <common>', '#include <common>\n' + GLSL_LIB)
       .replace('#include <begin_vertex>', GLSL_VS_DISP);
   };
-  depth.customProgramCacheKey = () => 'terrain-v2-depth-' + cfg.size;
+  depth.customProgramCacheKey = () => 'terrain-v2-depth-' + cfg.size + (gBake ? '-B' : '-b');
 
   const mesh = new THREE.Mesh(geo, mat);
   mesh.customDepthMaterial = depth;

@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { createRenderer, resizeRenderer, applyPixelRatio } from './render/renderer.js';
 import { Game } from './game/game.js';
+import { loadTerrainBake } from './render/terrain.js';
 import { terrainHeight } from './render/terrain.js';
 import { Menu } from './ui/menu.js';
 import { InstrumentPanel } from './ui/instruments.js';
@@ -55,6 +56,10 @@ canvas.addEventListener('webglcontextlost', (e) => {
 const scene = new THREE.Scene();
 // near/far は CameraRig.updateDepthRange() が視点ごとに最適化する（深度精度＝チカチカ防止）
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 2.5, 46000);
+// v15-B: 侵食ベイクを世界構築の前に読む — 配置/物理が使う CPU terrainHeight と
+// GPU 頂点変位が同一テーブルを参照するにはこれが順序条件。不在/失敗は resolve のまま
+// （loadTerrainBake 内部で catch）→ 従来手続き生成のみでゲームは成立する。
+await loadTerrainBake();
 const game = new Game(renderer, scene, camera);
 const explosion = new ExplosionFX(scene);
 explosion.camera = camera;

@@ -11,3 +11,4 @@ npm-debug.log*
 # surge 一時運用の残骸（再発防止）
 deploy/.surge-*.json
 scripts/.surge-*.py
+scripts/.bake-tmp/
