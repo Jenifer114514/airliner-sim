@@ -207,10 +207,11 @@ node scripts/shots.mjs          # スクリーンショット検証
 #### 2026-11-06b 全画面表示（Fullscreen API）
 
 - **追加**: ボタンクラスタ最終マスを `[全画面]`（`btn-fs`）に。タップで `#app`（canvas+HUD 全体）を `requestFullscreen()`、もう一度で `exitFullscreen()`。**Esc/OS 操作での解除にも `fullscreenchange` リスナで追従**（ラベル「解除」+緑ハイライト、`onResize()` 再同期）
+- **ホーム画面（メニュー）トグル（2026-11-06b 追補）**: モードの下に「**表示**」チップ行（`全画面 / ウィンドウ`）を追加。タップで即 `requestFullscreen`（タップ自体がユーザージェスチャなので成立）、選択は localStorage (`airliner.fs`) に永続化され、**「飛行を開始」タップのジェスチャ内でも自動適用**。HUD の `[全画面]` ボタン・Esc 解除とも双方向同期（実状態が常にチップへ逆同期）。非対応環境で「全画面」を選ぶと拒否検知でチップは自動で「ウィンドウ」へ戻る
 - **互換**: `requestFullscreen` → `webkitRequestFullscreen` の順に試行（旧 Safari）。**iPhone Safari は要素全画面 API 非対応**のため、非対応時は SOP バナーで「共有→ホーム画面に追加（apple-mobile-web-app-capable は設定済）」へ誘導
 - **同期の二重担保**: fullscreenchange が遅延/非発火の環境があるため、Promise 解決時にも `fsSyncLabel()` を呼ぶ（冪等）
 - **レイアウト**: クラスタは 3 列 grid、11→12 セルで行数不変（高さ増なし）
-- **検証**: `scripts/fs-test.mjs` **6/6**（実クリック→`document.fullscreenElement=#app`・ラベル/on クラス遷移・canvas ≥95% viewport・再タップで解除・JS errors 0）。browser-smoke 30/30・layout-test 重複なし
+- **検証**: `scripts/fs-test.mjs` **8/8**（メニュー発で即適用・ウィンドウ解除・リロード後の記憶→開始ジェスチャ適用・HUD トグル＋チップ逆同期＋LS 追従・canvas ≥95% viewport・JS errors 0）。browser-smoke 30/30・layout-test 重複なし。メニューの見た目 `screenshots/v3/menu-fs-row.png`
 
 #### 2026-11-06 配置の自然化（街路グリッド整合）+ 機体影の地形追従
 

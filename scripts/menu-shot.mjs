@@ -1,0 +1,15 @@
+import { chromium } from 'playwright-core';
+import { spawn } from 'node:child_process';
+const PORT = 8153;
+const srv = spawn('node', ['scripts/serve.mjs', String(PORT)], { stdio: 'ignore' });
+await new Promise(r => setTimeout(r, 800));
+const b = await chromium.launch({ headless: true, executablePath: process.env.CHROME_BIN, args: ['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader'] });
+const p = await b.newPage({ viewport: { width: 800, height: 480 } });
+await p.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'domcontentloaded' });
+await p.waitForTimeout(2500);
+await p.screenshot({ path: 'screenshots/v3/menu-fs.png', timeout: 240000 });
+await p.evaluate(() => { const el = document.querySelectorAll('#display-chips .chip')[0]; el.scrollIntoView({block:'center'}); });
+await p.waitForTimeout(600);
+await p.screenshot({ path: 'screenshots/v3/menu-fs-row.png', timeout: 240000 });
+await b.close(); srv.kill('SIGTERM');
+console.log('done');

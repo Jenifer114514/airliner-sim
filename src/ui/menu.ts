@@ -15,12 +15,14 @@ export interface MenuConfig {
   time: TimeOfDayId;
   weather: WeatherId;
   wind: WindId;
+  /** 2026-11-06: 全画面設定（ホーム画面で選択。飛行開始ジェスチャで適用） */
+  fullscreen: boolean;
 }
 
 export class Menu {
   config: MenuConfig = {
     aircraftId: AIRCRAFT[0].id, airportId: AIRPORTS[0].id, quality: 'high', mode: 'free',
-    time: 'day', weather: 'clear', wind: 'calm'
+    time: 'day', weather: 'clear', wind: 'calm', fullscreen: false
   };
   private els = {
     root: document.getElementById('menu-overlay') as HTMLElement,
@@ -28,6 +30,7 @@ export class Menu {
     airports: document.getElementById('airport-chips') as HTMLElement,
     quality: document.getElementById('quality-chips') as HTMLElement,
     modes: document.getElementById('mode-chips') as HTMLElement,
+    display: document.getElementById('display-chips') as HTMLElement,
     times: document.getElementById('time-chips') as HTMLElement,
     weathers: document.getElementById('weather-chips') as HTMLElement,
     winds: document.getElementById('wind-chips') as HTMLElement
@@ -79,6 +82,21 @@ export class Menu {
       this.config.wind,
       (id) => { this.config.wind = id as WindId; }
     );
+    // 2026-11-06: 表示（全画面）— ホーム画面でトグル。タップ即時適用＋飛行開始時にも反映
+    this.buildChips(
+      this.els.display,
+      [
+        { id: 'fs', label: '表示: 全画面', sub: '画面いっぱいに拡大' },
+        { id: 'win', label: '表示: ウィンドウ', sub: 'ブラウザ枠のまま' }
+      ],
+      this.config.fullscreen ? 'fs' : 'win',
+      (id) => {
+        const want = id === 'fs';
+        this.config.fullscreen = want;
+        this.onDisplaySelect?.(want);
+      }
+    );
+    for (const c of this.els.display.children) (c as HTMLElement).dataset.fs = (c as HTMLElement).classList.contains('chip') && (c === this.els.display.children[0]) ? '1' : '0';
     (document.getElementById('btn-start') as HTMLElement).addEventListener('pointerdown', (e) => {
       e.preventDefault();
       onStart();
@@ -125,7 +143,21 @@ export class Menu {
 
   /** 機体カード変更時コールバック（3D プレビュー差し替え用） */
   onAircraftChange: ((spec: AirlinerSpec) => void) | null = null;
+  /** 表示（全画面/ウィンドウ）切替コールバック（main が Fullscreen API を適用） */
+  onDisplaySelect: ((fullscreen: boolean) => void) | null = null;
 
-  show(): void { this.els.root.classList.remove('hidden'); }
+  /** 2026-11-06: 実機フルスクリーン状態をチップへ逆同期（Esc 解除・イベント追従用） */
+  syncDisplay(): void {
+    const fs = this.config.fullscreen;
+    for (const c of this.els.display.children) c.classList.toggle('selected', (c as HTMLElement).dataset.fs === '1' && fs || (c as HTMLElement).dataset.fs !== '1' && !fs);
+  }
+
+  /** 外部（fullscreenchange）からの現在値設定 */
+  setDisplay(fullscreen: boolean): void {
+    this.config.fullscreen = fullscreen;
+    this.syncDisplay();
+  }
+
+  show(): void { this.els.root.classList.remove('hidden'); this.syncDisplay(); }
   hide(): void { this.els.root.classList.add('hidden'); }
 }

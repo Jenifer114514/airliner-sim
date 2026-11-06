@@ -109,6 +109,7 @@ const menu = new Menu(() => {
   touchUI.style.display = 'block';
   instruments.resize();
   callouts.reset();
+  if (fsStored() && !isFs()) fsRequest(); // メニューで「全画面」選中 → 開始ジェスチャ内で適用
   game.startFlight(menu.config.aircraftId, menu.config.mode, menu.config.airportId);
   setCameraName(game.cameraName());
   showFlightNote();
@@ -337,9 +338,10 @@ bindButton('btn-inst', () => {
   el.innerHTML = hidden ? '計器<br>ON' : '計器<br>OFF';
   el.classList.toggle('on', !hidden);
 });
-// --- 全画面（Fullscreen API。2026-11-06）---
+// --- 全画面（Fullscreen API。2026-11-06 / ホーム画面・飛行HUD 共通）---
 // iPhone Safari は要素 fullscreen 非対応 →「ホーム画面に追加」(standalone) へ誘導。
 // Android Chrome / デスクトップは requestFullscreen、旧 Safari は webkit 経由。
+// 選択は localStorage に永続化し、メニューの「表示: 全画面」は飛行開始ジェスチャ内でも適用。
 type FsElement = HTMLElement & { webkitRequestFullscreen?: () => void };
 type FsDocument = Document & {
   webkitFullscreenElement?: Element | null;
@@ -347,28 +349,39 @@ type FsDocument = Document & {
 };
 const fsDoc = document as FsDocument;
 const fsEl = (document.getElementById('app') ?? document.documentElement) as FsElement;
+const FS_KEY = 'airliner.fs';
 const isFs = (): boolean => document.fullscreenElement != null || fsDoc.webkitFullscreenElement != null;
+function fsStored(): boolean { try { return localStorage.getItem(FS_KEY) === '1'; } catch { return false; } }
+function fsRemember(on: boolean): void { try { localStorage.setItem(FS_KEY, on ? '1' : '0'); } catch { /* シークレットモード等は永続化しない */ } }
 function fsSyncLabel(): void {
   const el = document.getElementById('btn-fs') as HTMLElement;
   el.innerHTML = isFs() ? '解除' : '全画面';
   el.classList.toggle('on', isFs());
+  menu.setDisplay(isFs()); // ホーム画面のチップを実状態へ逆同期
+  fsRemember(isFs());
   onResize(); // 全画面前後で safe-area/viewport が変わるため明示再同期
 }
-bindButton('btn-fs', () => {
-  // 状態ラベルは fullscreenchange でも同期するが、イベントが遅延/非発火の環境があるため
+function fsRequest(): void {
+  // ラベル/チップは fullscreenchange でも同期するが、イベントが遅延/非発火の環境があるため
   // プロミス解決時に明示同期も行う（冪等なので二重発火は無害）
-  if (isFs()) {
-    if (document.exitFullscreen) void document.exitFullscreen().then(() => fsSyncLabel()).catch(() => undefined);
-    else if (fsDoc.webkitExitFullscreen) { fsDoc.webkitExitFullscreen(); setTimeout(fsSyncLabel, 0); }
-    return;
-  }
   try {
-    if (fsEl.requestFullscreen) void fsEl.requestFullscreen().then(() => fsSyncLabel()).catch(() => fsUnsupported());
-    else if (fsEl.webkitRequestFullscreen) { fsEl.webkitRequestFullscreen(); setTimeout(fsSyncLabel, 0); }
-    else fsUnsupported();
+    if (fsEl.requestFullscreen) {
+      void fsEl.requestFullscreen()
+        .then(() => fsSyncLabel())
+        .catch(() => { fsUnsupported(); menu.setDisplay(false); fsRemember(false); });
+    } else if (fsEl.webkitRequestFullscreen) { fsEl.webkitRequestFullscreen(); setTimeout(fsSyncLabel, 0); }
+    else { fsUnsupported(); menu.setDisplay(false); fsRemember(false); }
   } catch {
-    fsUnsupported();
+    fsUnsupported(); menu.setDisplay(false); fsRemember(false);
   }
+}
+function fsExit(): void {
+  if (document.exitFullscreen) void document.exitFullscreen().then(() => fsSyncLabel()).catch(() => undefined);
+  else if (fsDoc.webkitExitFullscreen) { fsDoc.webkitExitFullscreen(); setTimeout(fsSyncLabel, 0); }
+}
+bindButton('btn-fs', () => {
+  if (isFs()) { fsRemember(false); fsExit(); }
+  else { fsRemember(true); fsRequest(); }
 });
 function fsUnsupported(): void {
   sopBanner.show({
@@ -379,6 +392,16 @@ function fsUnsupported(): void {
 }
 document.addEventListener('fullscreenchange', fsSyncLabel);
 document.addEventListener('webkitfullscreenchange' as 'fullscreenchange', fsSyncLabel);
+menu.setDisplay(isFs() || fsStored()); // 起動時チップ＝実状態 or 記憶設定（fs 自体はタップ/開始ジェスチャで適用）
+// ホーム画面［表示］チップ：タップ（=実ジェスチャ）で即時適用・記憶
+menu.onDisplaySelect = (want) => {
+  if (want) {
+    if (!isFs()) { fsRemember(true); fsRequest(); }
+  } else {
+    fsRemember(false);
+    if (isFs()) fsExit();
+  }
+};
 
 overlays.on('resume', () => {
   game.resume();
