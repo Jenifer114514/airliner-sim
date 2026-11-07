@@ -72,6 +72,13 @@ export class InstrumentPanel {
   private h = 0;
   private loadFrac: number;
   private massKg: number;
+  // v18: ①変わらない描画（パネル背景・各計器の縁・目盛・速度帯・固定ラベル）を
+  // offscreen canvas にキャッシュし、毎帧は針と数値だけ描く。
+  // ②再描画自体も 30Hz（32ms）に間引く — 計器表示はこれで十分滑らか。
+  private stat: HTMLCanvasElement | null = null;
+  private statSig = '';
+  private lastPaint = 0;
+  private static readonly PAINT_MIN_MS = 32;
 
   constructor(canvas: HTMLCanvasElement, opts?: { loadFrac?: number; massKg?: number }) {
     this.canvas = canvas;
@@ -102,47 +109,113 @@ export class InstrumentPanel {
   }
 
   update(d: InstrumentData): void {
-    this.d = d;
-    this.draw();
+    this.d = d; // 参照保持なので、間引きで飛ばした帧の値も次回描画に自然に反映される
+    if (performance.now() - this.lastPaint >= InstrumentPanel.PAINT_MIN_MS) this.draw();
   }
 
   // ------------------------------------------------------------------
-  private draw(): void {
-    const d = this.d;
-    const ctx = this.ctx;
-    if (this.w < 50 || this.h < 30) return; // サイズ未確定（非表示直後）は描画しない
-    ctx.clearRect(0, 0, this.w, this.h);
-    if (!d) return;
-
-    // パネル背景（角丸ストリップ）
-    ctx.fillStyle = 'rgba(8, 16, 28, 0.62)';
-    this.roundRect(0, 0, this.w, this.h, 10);
-    ctx.fill();
-
+  private layout(): { pad: number; cellW: number; cy: number; r: number } {
     const pad = 6;
     const cellW = (this.w - pad * 2) / 6;
     const cy = this.h / 2;
     const r = Math.max(6, Math.min(cellW * 0.44, this.h * 0.42));
+    return { pad, cellW, cy, r };
+  }
 
-    // 1. 対気速度計
+  /** 静的レイヤのキャッシュキー（サイズと速度帯のフラップ値で再生成） */
+  private staticKey(d: InstrumentData): string {
+    return `${Math.round(this.w)}x${Math.round(this.h)}|${Math.round(d.flapsDeg)}`;
+  }
+
+  /** v18: 不変部分のオフスクリーン合成 — 旧実装で毎帧繰り返していた
+   *  計器縁×5 + 目盛/ラベルの fillText 約 40 本 + 色帯パスを丸ごと節約 */
+  private buildStatic(d: InstrumentData): void {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let stat = this.stat;
+    if (!stat) stat = this.stat = document.createElement('canvas');
+    const W = Math.max(1, Math.round(this.w * dpr));
+    const H = Math.max(1, Math.round(this.h * dpr));
+    if (stat.width !== W || stat.height !== H) {
+      stat.width = W;
+      stat.height = H;
+    }
+    const t = stat.getContext('2d')!;
+    t.setTransform(dpr, 0, 0, dpr, 0, 0);
+    t.clearRect(0, 0, this.w, this.h);
+    t.fillStyle = 'rgba(8, 16, 28, 0.62)';
+    this.roundRect(t, 0, 0, this.w, this.h, 10);
+    t.fill();
+    const { pad, cellW, cy, r } = this.layout();
+    const VMAX = 190;
+    // 対気速度計: 縁 + 色帯 + 目盛 + VMO ライン + 固定ラベル
+    const sx = cellW * 0.5 + pad;
+    this.gaugeFace(t, sx, cy, r);
+    const vfe = vfeForFlap(d.flapsDeg);
+    this.drawArcBand(t, sx, cy, r * 0.9, 0, vfe.recMs, C.green, 0, VMAX);
+    if (vfe.recMs < vfe.limitMs - 0.5) {
+      this.drawArcBand(t, sx, cy, r * 0.9, vfe.recMs, vfe.limitMs, C.amber, 0, VMAX);
+    }
+    this.drawArcBand(t, sx, cy, r * 0.9, vfe.limitMs, VMAX, C.red, 0, VMAX);
+    this.sweepTicks(t, sx, cy, r, 0, 180, 30, 10, (v) => String(v));
+    const aVmo = ((this.valToAngle(B737_LIMITS.vmoKias * KT, 0, VMAX) - 90) * Math.PI) / 180;
+    t.beginPath();
+    t.moveTo(sx + Math.cos(aVmo) * r * 0.78, cy + Math.sin(aVmo) * r * 0.78);
+    t.lineTo(sx + Math.cos(aVmo) * r * 0.96, cy + Math.sin(aVmo) * r * 0.96);
+    t.strokeStyle = 'rgba(255,255,255,0.85)';
+    t.lineWidth = Math.max(1.5, r * 0.035);
+    t.stroke();
+    t.textAlign = 'center';
+    t.textBaseline = 'middle';
+    t.fillStyle = C.text;
+    t.font = `600 ${Math.round(r * 0.17)}px -apple-system, sans-serif`;
+    t.fillText('IAS m/s', sx, cy + r * 0.78);
+    t.fillStyle = vfe.limitKias <= 175 ? C.amber : C.text;
+    t.font = `600 ${Math.round(r * 0.15)}px -apple-system, sans-serif`;
+    t.fillText(`VFE ${Math.round(vfe.limitKias)}kt`, sx, cy + r * 0.95);
+    // 姿勢指示器・HSI: 縁のみ（中身は常に動的）
+    this.gaugeFace(t, cellW * 1.5 + pad, cy, r * 1.12);
+    // 高度計
+    const ax = cellW * 2.5 + pad;
+    this.gaugeFace(t, ax, cy, r);
+    this.sweepTicks(t, ax, cy, r, 0, 2000, 500, 100, (v) => (v === 2000 ? '2k' : String(v / 100) + 'h'));
+    // 昇降計
+    const vx = cellW * 3.5 + pad;
+    this.gaugeFace(t, vx, cy, r);
+    this.sweepTicks(t, vx, cy, r, -20, 20, 5, 1, (v) => String(v));
+    t.fillStyle = C.text;
+    t.font = `600 ${Math.round(r * 0.17)}px -apple-system, sans-serif`;
+    t.fillText('V/S m/s', vx, cy + r * 0.78);
+    // 方位計
+    this.gaugeFace(t, cellW * 4.5 + pad, cy, r);
+    this.statSig = this.staticKey(d);
+  }
+
+  private draw(): void {
+    const d = this.d;
+    const ctx = this.ctx;
+    if (this.w < 50 || this.h < 30) return; // サイズ未確定（非表示直後）は描画しない
+    this.lastPaint = performance.now();
+    ctx.clearRect(0, 0, this.w, this.h);
+    if (!d) return;
+
+    const sig = this.staticKey(d);
+    if (!this.stat || this.statSig !== sig) this.buildStatic(d);
+    ctx.imageSmoothingEnabled = false;
+    if (this.stat) ctx.drawImage(this.stat, 0, 0, this.w, this.h);
+
+    const { pad, cellW, cy, r } = this.layout();
+    // 動的レイヤのみ各計器が描く（縁・目盛は静的キャッシュ済み）
     this.drawSpeed(cellW * 0.5 + pad, cy, r, d);
-    // 2. 姿勢指示器
     this.drawAttitude(cellW * 1.5 + pad, cy, r * 1.12, d);
-    // 3. 高度計
     this.drawAlt(cellW * 2.5 + pad, cy, r, d);
-    // 4. 昇降計
     this.drawVsi(cellW * 3.5 + pad, cy, r, d);
-    // 5. 方位計
     this.drawHsi(cellW * 4.5 + pad, cy, r, d);
-    // 6. 状態パネル
     this.drawSys(cellW * 5 + pad + 2, pad, cellW - 4, this.h - pad * 2, d);
-
     // 警告フラッシュ帯（上端）
     this.drawWarnings(d);
   }
 
-  private roundRect(x: number, y: number, w: number, h: number, r: number): void {
-    const ctx = this.ctx;
+  private roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
     ctx.beginPath();
     ctx.moveTo(x + r, y);
     ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -153,8 +226,7 @@ export class InstrumentPanel {
   }
 
   /** 丸計器の枠・目盛の土台 */
-  private gaugeFace(cx: number, cy: number, r: number): void {
-    const ctx = this.ctx;
+  private gaugeFace(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number): void {
     ctx.beginPath();
     ctx.arc(cx, cy, r + 3, 0, Math.PI * 2);
     ctx.fillStyle = C.bezel;
@@ -170,12 +242,12 @@ export class InstrumentPanel {
 
   /** 270° スイープ目盛（start: -225°, end: +45° の計器規約） */
   private sweepTicks(
+    ctx: CanvasRenderingContext2D,
     cx: number, cy: number, r: number,
     min: number, max: number,
     majorEvery: number, minorEvery: number,
     labelFn: ((v: number) => string) | null
   ): void {
-    const ctx = this.ctx;
     const a0 = (-225 * Math.PI) / 180;
     const a1 = (45 * Math.PI) / 180;
     const valToAng = (v: number) => a0 + ((v - min) / (max - min)) * (a1 - a0);
@@ -223,31 +295,10 @@ export class InstrumentPanel {
   }
 
   // ---------- 1. 対気速度計（JAL/JTA マニュアル 1.2/5.2 の V 速度準拠） ----------
+  /** v18: 動的レイヤのみ（縁・色帯・目盛・VMO・固定ラベルは静的キャッシュ側） */
   private drawSpeed(cx: number, cy: number, r: number, d: InstrumentData): void {
     const ctx = this.ctx;
     const VMAX = 190; // m/s（≒ 369 kt）
-    this.gaugeFace(cx, cy, r);
-
-    // 色帯: 緑=実務推奨以下 / 黄=推奨超〜V_FE 限界 / 赤=超過
-    const vfe = vfeForFlap(d.flapsDeg);
-    this.drawArcBand(cx, cy, r * 0.9, 0, vfe.recMs, C.green, 0, VMAX);
-    if (vfe.recMs < vfe.limitMs - 0.5) {
-      this.drawArcBand(cx, cy, r * 0.9, vfe.recMs, vfe.limitMs, C.amber, 0, VMAX);
-    }
-    this.drawArcBand(cx, cy, r * 0.9, vfe.limitMs, VMAX, C.red, 0, VMAX);
-
-    this.sweepTicks(cx, cy, r, 0, 180, 30, 10, (v) => String(v));
-    // VMO ライン（340 kt ≒ 175 m/s）: 白の細線（リム内側へ放射）
-    {
-      const a = ((this.valToAngle(B737_LIMITS.vmoKias * KT, 0, VMAX) - 90) * Math.PI) / 180;
-      ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(a) * r * 0.78, cy + Math.sin(a) * r * 0.78);
-      ctx.lineTo(cx + Math.cos(a) * r * 0.96, cy + Math.sin(a) * r * 0.96);
-      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-      ctx.lineWidth = Math.max(1.5, r * 0.035);
-      ctx.stroke();
-    }
-
     // V 速度バグ（マニュアル 2.4 の V2 / 5.2 の Vapp）
     const to = takeoffSpeeds(this.loadFrac);
     if (d.agl < 120 && d.vspeed > -2 && d.ias > 5) {
@@ -267,13 +318,6 @@ export class InstrumentPanel {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(d.ias.toFixed(0), cx, cy + r * 0.52);
-    ctx.fillStyle = C.text;
-    ctx.font = `600 ${Math.round(r * 0.17)}px -apple-system, sans-serif`;
-    ctx.fillText('IAS m/s', cx, cy + r * 0.78);
-    // 現フラップの V_FE（kt）表示
-    ctx.fillStyle = vfe.limitKias <= 175 ? C.amber : C.text;
-    ctx.font = `600 ${Math.round(r * 0.15)}px -apple-system, sans-serif`;
-    ctx.fillText(`VFE ${Math.round(vfe.limitKias)}kt`, cx, cy + r * 0.95);
   }
 
   /** 速度計 rim 上の V 速度バグ（三角形 + ラベル） */
@@ -306,11 +350,11 @@ export class InstrumentPanel {
   }
 
   private drawArcBand(
+    ctx: CanvasRenderingContext2D,
     cx: number, cy: number, r: number,
     v0: number, v1: number, color: string,
     vmin = 0, vmax = 180
   ): void {
-    const ctx = this.ctx;
     const a0 = ((this.valToAngle(v0, vmin, vmax) - 90) * Math.PI) / 180;
     const a1 = ((this.valToAngle(v1, vmin, vmax) - 90) * Math.PI) / 180;
     ctx.beginPath();
@@ -323,7 +367,6 @@ export class InstrumentPanel {
   // ---------- 2. 姿勢指示器 ----------
   private drawAttitude(cx: number, cy: number, r: number, d: InstrumentData): void {
     const ctx = this.ctx;
-    this.gaugeFace(cx, cy, r);
     // 球をクリップしてピッチ/バンクで動かす
     ctx.save();
     ctx.beginPath();
@@ -417,8 +460,6 @@ export class InstrumentPanel {
   // ---------- 3. 高度計 ----------
   private drawAlt(cx: number, cy: number, r: number, d: InstrumentData): void {
     const ctx = this.ctx;
-    this.gaugeFace(cx, cy, r);
-    this.sweepTicks(cx, cy, r, 0, 2000, 500, 100, (v) => (v === 2000 ? '2k' : String(v / 100) + 'h'));
     this.needle(cx, cy, r, this.valToAngle(d.alt % 2000, 0, 2000), 0.8);
     ctx.fillStyle = C.digital;
     ctx.font = `700 ${Math.round(r * 0.3)}px -apple-system, sans-serif`;
@@ -433,23 +474,17 @@ export class InstrumentPanel {
   // ---------- 4. 昇降計 ----------
   private drawVsi(cx: number, cy: number, r: number, d: InstrumentData): void {
     const ctx = this.ctx;
-    this.gaugeFace(cx, cy, r);
-    this.sweepTicks(cx, cy, r, -20, 20, 5, 1, (v) => String(v));
     this.needle(cx, cy, r, this.valToAngle(d.vspeed, -20, 20), 0.8);
     ctx.fillStyle = C.digital;
     ctx.font = `700 ${Math.round(r * 0.28)}px -apple-system, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText((d.vspeed >= 0 ? '+' : '') + d.vspeed.toFixed(1), cx, cy + r * 0.52);
-    ctx.fillStyle = C.text;
-    ctx.font = `600 ${Math.round(r * 0.17)}px -apple-system, sans-serif`;
-    ctx.fillText('V/S m/s', cx, cy + r * 0.78);
   }
 
   // ---------- 5. 方位計 HSI ----------
   private drawHsi(cx: number, cy: number, r: number, d: InstrumentData): void {
     const ctx = this.ctx;
-    this.gaugeFace(cx, cy, r);
     ctx.save();
     ctx.beginPath();
     ctx.arc(cx, cy, r * 0.92, 0, Math.PI * 2);
@@ -597,7 +632,7 @@ export class InstrumentPanel {
     for (const m of shown) {
       const wTxt = ctx.measureText(m.text).width + 14;
       ctx.fillStyle = m.color;
-      this.roundRect(x, y, wTxt, this.h * 0.16, 6);
+      this.roundRect(ctx, x, y, wTxt, this.h * 0.16, 6);
       ctx.fill();
       ctx.fillStyle = '#0b1220';
       ctx.fillText(m.text, x + 7, y + this.h * 0.02);

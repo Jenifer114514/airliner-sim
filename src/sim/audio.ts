@@ -139,9 +139,27 @@ export class AudioEngine {
     this.warnGain = gain;
   }
 
+  // v18: 毎帧 setTargetAtTime（AudioParam 書き込み 5 本）は重い。16Hz に間引き、
+  // かつ前回適用値から微小ならスキップ。setTargetAtTime の時間定数（0.15〜0.25s）
+  // より間隔が短いため、音の変化は知覚できない。
+  private lastEngineSet = -1;
+  private lastEngineThr = -9;
+  private lastEngineIas = -9;
+  private lastWindSet = -1;
+  private lastWindIas = -9;
+  private lastWarnKind = '';
+
   /** エンジン音: throttle 0..1, ias m/s（推力風切りで高回転化する近似） */
   setEngine(throttle: number, ias: number): void {
     if (!this.ctx || !this.engineGain || !this.engineFilter) return;
+    const now = performance.now();
+    const big = Math.abs(throttle - this.lastEngineThr) > 0.05 || Math.abs(ias - this.lastEngineIas) > 12;
+    if (!big && now - this.lastEngineSet < 60) return;
+    if (big || now - this.lastEngineSet >= 60) {
+      this.lastEngineSet = now;
+      this.lastEngineThr = throttle;
+      this.lastEngineIas = ias;
+    }
     const t = this.ctx.currentTime;
     const rpm = 0.25 + 0.75 * throttle + Math.min(ias / 400, 0.15);
     this.engineGain.gain.setTargetAtTime(0.10 + 0.30 * throttle, t, 0.15);
@@ -154,6 +172,11 @@ export class AudioEngine {
   /** 風切り音: 速度比例 */
   setWind(ias: number): void {
     if (!this.ctx || !this.windGain || !this.windFilter) return;
+    const now = performance.now();
+    const big = Math.abs(ias - this.lastWindIas) > 12;
+    if (!big && now - this.lastWindSet < 60) return;
+    this.lastWindSet = now;
+    this.lastWindIas = ias;
     const t = this.ctx.currentTime;
     this.windGain.gain.setTargetAtTime(Math.min(0.32, (ias / 250) * 0.38), t, 0.25);
     this.windFilter.frequency.setTargetAtTime(500 + ias * 4, t, 0.25);
@@ -165,6 +188,8 @@ export class AudioEngine {
    */
   setWarning(kind: 'none' | 'stall' | 'overspeed' | 'gear'): void {
     if (!this.ctx || !this.warnOsc || !this.warnGain) return;
+    if (kind === this.lastWarnKind) return; // 状態文字列が変わったフレームのみ適用
+    this.lastWarnKind = kind;
     const t = this.ctx.currentTime;
     if (kind === 'none') {
       this.warnGain.gain.setTargetAtTime(0, t, 0.05);

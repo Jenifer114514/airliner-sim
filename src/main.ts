@@ -82,6 +82,18 @@ controls.attachKeyboard();
 // 3. UI
 // ============================================================
 const initialSpec = AIRCRAFT.find((a) => a.id === 'b737') ?? AIRCRAFT[0];
+const instShared: InstrumentData = {
+  ias: 0, alt: 0, agl: 0, vspeed: 0,
+  heading: 0, pitch: 0, bank: 0,
+  aoa: 0, gLoad: 1,
+  throttle: 0, fuelFrac: 1,
+  groundSpeed: 0,
+  windSpeed: 0, windDirDeg: 0,
+  flapsDeg: 0, gearDown: true, spoilers: 0,
+  phase: 'PARKED', crashed: false,
+  rwyName: null, rwyDist: null, rwyRemaining: null, rwyHeading: null,
+  fps: 60, onGround: true
+};
 const instruments = new InstrumentPanel(document.getElementById('inst-panel') as HTMLCanvasElement, {
   loadFrac: loadFracFromMass(initialSpec.mass),
   massKg: initialSpec.mass
@@ -204,6 +216,12 @@ const apSetBtn = document.getElementById('btn-ap-set') as HTMLElement;
 const apPanel = document.getElementById('ap-panel') as HTMLElement;
 const apStrip = document.getElementById('ap-strip') as HTMLElement;
 let apLastSig = '';
+// v18: AP 系 DOM は「値が変わった帧だけ」書き込む（従来は毎帧 innerHTML 再パース
+// と textContent 代入で、タップ中のボタン見た目を不安定にしていた）
+let apUiEngaged = false;
+let apUiStripDisp = '';
+let apStripLastTxt = '';
+let apUiChips = '';
 
 const AP_MSG: Record<string, CalloutEvent | undefined> = {
   'ap-on': { text: 'オートパイロット 接続', speech: 'autopilot engaged', kind: 'info' },
@@ -666,22 +684,23 @@ function frame(now: number): void {
     if (t) {
       const info = game.getFlightInfo();
       const nav = game.getNavInfo();
-      const inst: InstrumentData = {
-        ias: t.ias, alt: t.alt, agl: t.agl, vspeed: t.vspeed,
-        heading: t.heading, pitch: t.pitch, bank: t.bank,
-        aoa: t.aoa, gLoad: t.gLoad,
-        throttle: t.throttle, fuelFrac: t.fuelFrac,
-        groundSpeed: t.groundSpeed,
-        windSpeed: t.windSpeed, windDirDeg: t.windDirDeg,
-        flapsDeg: info.flapsDeg, gearDown: info.gearDown, spoilers: controls.spoilers,
-        phase: info.phase, crashed: info.crashed,
-        rwyName: nav ? nav.nearest.name : null,
-        rwyDist: nav ? nav.distanceToThreshold : null,
-        rwyRemaining: nav ? nav.remainingRunway : null,
-        rwyHeading: nav ? nav.nearest.headingDeg : null,
-        fps: game.quality.getFps(),
-        onGround: t.onGround
-      };
+      // v18: 計器データはモジュール使い回し（25 項目リテラルを毎帧作らない）。
+      // 消費側（InstrumentPanel / SOPCallouts）はいずれも当帧内で値を読む
+      const inst = instShared;
+      inst.ias = t.ias; inst.alt = t.alt; inst.agl = t.agl; inst.vspeed = t.vspeed;
+      inst.heading = t.heading; inst.pitch = t.pitch; inst.bank = t.bank;
+      inst.aoa = t.aoa; inst.gLoad = t.gLoad;
+      inst.throttle = t.throttle; inst.fuelFrac = t.fuelFrac;
+      inst.groundSpeed = t.groundSpeed;
+      inst.windSpeed = t.windSpeed; inst.windDirDeg = t.windDirDeg;
+      inst.flapsDeg = info.flapsDeg; inst.gearDown = info.gearDown; inst.spoilers = controls.spoilers;
+      inst.phase = info.phase; inst.crashed = info.crashed;
+      inst.rwyName = nav ? nav.nearest.name : null;
+      inst.rwyDist = nav ? nav.distanceToThreshold : null;
+      inst.rwyRemaining = nav ? nav.remainingRunway : null;
+      inst.rwyHeading = nav ? nav.nearest.headingDeg : null;
+      inst.fps = game.quality.getFps();
+      inst.onGround = t.onGround;
 
       // ---- 衝突爆発：建物 / 地面ハードインパクト ----
       if (!t.crashed) {
@@ -717,19 +736,34 @@ function frame(now: number): void {
       // ---- AP 表示（ストリップ / パネル / イベント音声） ----
       {
         const aps = game.getApStatus();
-        apBtn.classList.toggle('on', aps.engaged);
-        apBtn.innerHTML = aps.engaged ? 'AP<br>ON' : 'AP<br>OFF';
+        if (aps.engaged !== apUiEngaged) {
+          apUiEngaged = aps.engaged;
+          apBtn.classList.toggle('on', aps.engaged);
+          apBtn.innerHTML = aps.engaged ? 'AP<br>ON' : 'AP<br>OFF';
+        }
         if (aps.engaged) {
-          apStrip.style.display = 'flex';
-          apStripTxt.textContent =
+          if (apUiStripDisp !== 'flex') {
+            apUiStripDisp = 'flex';
+            apStrip.style.display = 'flex';
+          }
+          const stripTxt =
             `AP ${aps.lat}${aps.loc ? '·LOC' : ''} | ${aps.ver}${aps.gs ? '·GS' : ''} · ` +
             `IAS ${Math.round(t.ias * 1.94404)}kt · HDG ${String(aps.hdgDeg).padStart(3, '0')}° · ` +
             `ALT ${aps.altM}m${aps.ver === 'VS' ? ` · V/S ${aps.vsFpm}` : ''}`;
-          apChHdg.classList.toggle('on', aps.lat === 'HDG');
-          apChNav.classList.toggle('on', aps.lat === 'NAV');
-          apChVs.classList.toggle('on', aps.ver === 'VS');
-          apChAlt.classList.toggle('on', aps.ver === 'ALT');
-        } else {
+          if (stripTxt !== apStripLastTxt) {
+            apStripLastTxt = stripTxt;
+            apStripTxt.textContent = stripTxt;
+          }
+          const chips = `${aps.lat}|${aps.ver}`;
+          if (chips !== apUiChips) {
+            apUiChips = chips;
+            apChHdg.classList.toggle('on', aps.lat === 'HDG');
+            apChNav.classList.toggle('on', aps.lat === 'NAV');
+            apChVs.classList.toggle('on', aps.ver === 'VS');
+            apChAlt.classList.toggle('on', aps.ver === 'ALT');
+          }
+        } else if (apUiStripDisp !== 'none') {
+          apUiStripDisp = 'none';
           apStrip.style.display = 'none';
         }
         if (apPanel.style.display === 'block') {

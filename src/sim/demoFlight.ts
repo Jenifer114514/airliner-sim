@@ -36,6 +36,24 @@ export class DemoFlight {
   private prevPos = new THREE.Vector3();
   private bankSmooth = 0;
   private pitchSmooth = 0;
+  // v18: update() 1 回あたりのオブジェクト生成（Vector3/Matrix4/Quaternion 群 +
+  // 戻り値リテラル）を排除。返す DemoState は使い回し = 「有効なのは当帧のみ」
+  // の契約（全消費側 — game の player 反映・rig・HUD — は同じ帧内で読む）。
+  private readonly stPos = new THREE.Vector3();
+  private readonly stQuat = new THREE.Quaternion();
+  private readonly stVel = new THREE.Vector3();
+  private readonly mTmp = new THREE.Matrix4();
+  private readonly qTmp = new THREE.Quaternion();
+  private readonly vEye = new THREE.Vector3();
+  private readonly vTan = new THREE.Vector3();
+  private readonly vTanAhead = new THREE.Vector3();
+  private static readonly UP = new THREE.Vector3(0, 1, 0);
+  private static readonly AXIS_Z = new THREE.Vector3(0, 0, 1);
+  private readonly st: DemoState = {
+    position: this.stPos, quaternion: this.stQuat, velocity: this.stVel,
+    speed: 0, altitude: 0, heading: 0, pitch: 0, bank: 0, vspeed: 0,
+    throttle: 0, gear: 1, flaps: 0, spoilers: 0, phase: 'PREFLIGHT'
+  };
 
   /** 軌道パラメータ u ∈ [0,1] の時間マッピング（区間ごとの速度） */
   private static readonly TIMELINE: Array<[number, number, number]> = [
@@ -93,19 +111,18 @@ export class DemoFlight {
     this.t = Math.min(this.t + dt, this.duration);
     const u = this.mapTimeToU(this.t);
 
-    const pos = this.curve.getPointAt(u);
-    const tangent = this.curve.getTangentAt(u).normalize();
+    const pos = this.curve.getPointAt(u, this.stPos);
+    const tangent = this.curve.getTangentAt(u, this.vTan).normalize();
 
     // 姿勢: 接線方向に機首を合わせる
     //   Matrix4.lookAt(eye, target, up) は +Z = eye→target の逆 = normalize(eye - target)。
     //   ここでは +Z（機首）= 接線 にしたいので eye = pos + tangent, target = pos とする。
-    const m = new THREE.Matrix4();
-    const up = new THREE.Vector3(0, 1, 0);
-    m.lookAt(pos.clone().addScaledVector(tangent, 100), pos, up);
-    const quat = new THREE.Quaternion().setFromRotationMatrix(m);
+    const m = this.mTmp;
+    m.lookAt(this.vEye.copy(pos).addScaledVector(tangent, 100), pos, DemoFlight.UP);
+    const quat = this.stQuat.setFromRotationMatrix(m);
 
     // バンク: 水平方向の曲率から（旋回外側へ傾ける）
-    const tangentAhead = this.curve.getTangentAt(Math.min(u + 0.012, 1)).normalize();
+    const tangentAhead = this.curve.getTangentAt(Math.min(u + 0.012, 1), this.vTanAhead).normalize();
     const yawNow = Math.atan2(tangent.x, tangent.z);
     const yawAhead = Math.atan2(tangentAhead.x, tangentAhead.z);
     let yawRate = (yawAhead - yawNow) / (0.012 * 100); // 近似
@@ -114,14 +131,14 @@ export class DemoFlight {
     const speed = Math.max(pos.distanceTo(this.prevPos) / Math.max(dt, 1e-3), 1);
     const bankTarget = THREE.MathUtils.clamp(-yawRate * speed * 1.15, -0.62, 0.62);
     this.bankSmooth += (bankTarget - this.bankSmooth) * Math.min(dt * 1.6, 1);
-    quat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), this.bankSmooth));
+    quat.multiply(this.qTmp.setFromAxisAngle(DemoFlight.AXIS_Z, this.bankSmooth));
 
     // ピッチ表示: 接線の仰角 + ソフト化
     const pitchTarget = Math.asin(THREE.MathUtils.clamp(tangent.y, -1, 1));
     this.pitchSmooth += (pitchTarget - this.pitchSmooth) * Math.min(dt * 2.2, 1);
 
     // 速度: 地速は位置微分、対気速度はフェーズ依存の簡易モデル
-    const velocity = pos.clone().sub(this.prevPos).divideScalar(Math.max(dt, 1e-3));
+    const velocity = this.stVel.copy(pos).sub(this.prevPos).divideScalar(Math.max(dt, 1e-3));
     this.prevPos.copy(pos);
 
     const phase = this.phaseOf(this.t, pos.y);
@@ -133,22 +150,19 @@ export class DemoFlight {
     // 方位: 北 = −Z, 東 = +X, 時計回り 0..360°
     const heading = ((Math.atan2(tangent.x, -tangent.z) * 180) / Math.PI + 360) % 360;
 
-    return {
-      position: pos,
-      quaternion: quat,
-      velocity,
-      speed,
-      altitude: pos.y,
-      heading,
-      pitch: (this.pitchSmooth * 180) / Math.PI,
-      bank: (this.bankSmooth * 180) / Math.PI,
-      vspeed: velocity.y,
-      throttle,
-      gear,
-      flaps,
-      spoilers,
-      phase
-    };
+    const st = this.st;
+    st.speed = speed;
+    st.altitude = pos.y;
+    st.heading = heading;
+    st.pitch = (this.pitchSmooth * 180) / Math.PI;
+    st.bank = (this.bankSmooth * 180) / Math.PI;
+    st.vspeed = velocity.y;
+    st.throttle = throttle;
+    st.gear = gear;
+    st.flaps = flaps;
+    st.spoilers = spoilers;
+    st.phase = phase;
+    return st; // 使い回しオブジェクト（当帧限り有効）
   }
 
   private mapTimeToU(t: number): number {

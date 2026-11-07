@@ -70,6 +70,7 @@ export class CameraRig {
   private tmpRight = new THREE.Vector3();
   private tmpUp = new THREE.Vector3();
   private worldUp = new THREE.Vector3(0, 1, 0);
+  private lookTarget = new THREE.Vector3(); // v18: lookAt 用（旧: position.clone() を毎帧生成）
 
   // オービットカメラ
   orbitAzimuth = 2.2;
@@ -177,7 +178,7 @@ export class CameraRig {
         this.tmpUp.set(0, 1, 0).applyQuaternion(quaternion).lerp(this.worldUp, 0.55).normalize();
         this.camera.position.copy(this.desiredPos);
         this.camera.up.copy(this.tmpUp);
-        this.camera.lookAt(position.clone().addScaledVector(this.tmpFwd, size * 0.9).addScaledVector(this.worldUp, -size * 0.02));
+        this.camera.lookAt(this.lookTarget.copy(position).addScaledVector(this.tmpFwd, size * 0.9).addScaledVector(this.worldUp, -size * 0.02));
         if (this.blending) {
           this.blendT = Math.min(this.blendT + dt / CAMERA.BLEND_TIME, 1);
           const k = easeInOut(this.blendT);
@@ -205,7 +206,7 @@ export class CameraRig {
           .addScaledVector(this.tmpUp, size * 0.14);
         this.camera.position.copy(this.desiredPos);
         this.camera.up.copy(this.tmpUp);
-        this.camera.lookAt(position.clone().addScaledVector(this.smoothFwd, size * 0.55));
+        this.camera.lookAt(this.lookTarget.copy(position).addScaledVector(this.smoothFwd, size * 0.55));
         // 速度に応じて画角をわずかに広げる（速度感）
         const lowQ = pose.agl !== undefined ? clamp(1 - pose.agl / 300, 0, 1) : 0;
         const targetFov = CAMERA.FOV + clamp(velocity.length() * 0.03, 0, 8) + lowQ * 3.2;
