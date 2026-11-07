@@ -103,7 +103,7 @@ const sopBanner = new SopBanner();
 const audio = new AudioEngine();
 
 // デバッグ/検証用フック
-(window as unknown as Record<string, unknown>).__airliner = { game, scene, camera, controls, audio, callouts, renderer, terrainHeight, explosion, buildingColliders };
+(window as unknown as Record<string, unknown>).__airliner = { game, scene, camera, controls, audio, callouts, renderer, terrainHeight, explosion, buildingColliders, instruments };
 
 const hudRoot = document.getElementById('hud') as HTMLElement;
 hudRoot.style.display = 'none';

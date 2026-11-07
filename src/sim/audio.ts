@@ -153,13 +153,14 @@ export class AudioEngine {
   setEngine(throttle: number, ias: number): void {
     if (!this.ctx || !this.engineGain || !this.engineFilter) return;
     const now = performance.now();
+    // v18.1: 前回書込み値から微小変化なら（経過時間に関係なく）一切書かない —
+    // 定常巡航でも 60ms ごとに 5 本の setTargetAtTime が走っていたのをゼロ化。
+    if (Math.abs(throttle - this.lastEngineThr) < 0.004 && Math.abs(ias - this.lastEngineIas) < 0.5) return;
     const big = Math.abs(throttle - this.lastEngineThr) > 0.05 || Math.abs(ias - this.lastEngineIas) > 12;
     if (!big && now - this.lastEngineSet < 60) return;
-    if (big || now - this.lastEngineSet >= 60) {
-      this.lastEngineSet = now;
-      this.lastEngineThr = throttle;
-      this.lastEngineIas = ias;
-    }
+    this.lastEngineSet = now;
+    this.lastEngineThr = throttle;
+    this.lastEngineIas = ias;
     const t = this.ctx.currentTime;
     const rpm = 0.25 + 0.75 * throttle + Math.min(ias / 400, 0.15);
     this.engineGain.gain.setTargetAtTime(0.10 + 0.30 * throttle, t, 0.15);
@@ -173,6 +174,7 @@ export class AudioEngine {
   setWind(ias: number): void {
     if (!this.ctx || !this.windGain || !this.windFilter) return;
     const now = performance.now();
+    if (Math.abs(ias - this.lastWindIas) < 0.4) return; // v18.1: 微小差は書込み自体しない
     const big = Math.abs(ias - this.lastWindIas) > 12;
     if (!big && now - this.lastWindSet < 60) return;
     this.lastWindSet = now;
