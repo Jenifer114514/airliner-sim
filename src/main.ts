@@ -45,10 +45,18 @@ if (!rendererOrNull) {
 const renderer = rendererOrNull;
 
 canvas.addEventListener('webglcontextlost', (e) => {
-  e.preventDefault();
+  e.preventDefault(); // v17: preventDefault で復旧試行を許可（three.js が内部で再初期化）
   overlays.showWebglError(
     'WebGL コンテキストが失われました。ページを再読み込みしてください。'
   );
+});
+// v17: コンテキスト復旧時 — three.js がシェーダ/テクスチャを再アップロードするため、
+// シャドウマップの再生成だけ促してオーバーレイを閉じる（従来は復旧しても画面が
+// 黒いまま・エラー表示が残った）。
+canvas.addEventListener('webglcontextrestored', () => {
+  renderer.shadowMap.needsUpdate = true;
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
+  overlays.hideWebglError();
 });
 
 // ============================================================
@@ -92,6 +100,10 @@ hudRoot.style.display = 'none';
 let autoQualityMax: QualityLevel = 'high';
 let autoLowTimer = 0;
 let autoHighTimer = 0;
+// v17: 自動降格後の昇格抑止（秒）。降格直後のフレームタイム改善を「余裕」と
+// 誤読して即昇格 → 負荷で再降格…の ping-pong（たびに影 map 再生成・
+// マテリアル更新）を防止するため 60 秒は据え置く。
+let autoPromoteDelay = 0;
 
 const touchUI = document.getElementById('touch-ui') as HTMLElement;
 
@@ -770,6 +782,7 @@ function frame(now: number): void {
 
   // ---- Phase 6: 自動画質調整（FPS 中央値ベース・ヒステリシス付き） ----
   const fps = game.quality.getFps();
+  autoPromoteDelay = Math.max(0, autoPromoteDelay - dt);
   const idx = QUALITY_ORDER.indexOf(game.quality.level);
   const maxIdx = QUALITY_ORDER.indexOf(autoQualityMax);
   if (game.state === 'flying') {
@@ -780,10 +793,10 @@ function frame(now: number): void {
         autoLowTimer = 0;
         game.setQuality(QUALITY_ORDER[idx - 1]);
         applyPixelRatio(renderer, game.quality.preset.pixelRatio);
-        game.syncPostFx();
-  game.syncPostFx();
+        game.syncPostFx(); // 1 回でよい（setQuality 内でも呼ぶが DPR 変更後の再同期）
+        autoPromoteDelay = 60;
       }
-    } else if (fps > 55 && idx < maxIdx) {
+    } else if (fps > 55 && idx < maxIdx && autoPromoteDelay <= 0) {
       autoLowTimer = 0;
       autoHighTimer += dt;
       if (autoHighTimer > 8) {
@@ -791,7 +804,6 @@ function frame(now: number): void {
         game.setQuality(QUALITY_ORDER[idx + 1]);
         applyPixelRatio(renderer, game.quality.preset.pixelRatio);
         game.syncPostFx();
-  game.syncPostFx();
       }
     } else {
       autoLowTimer = 0;
@@ -799,7 +811,7 @@ function frame(now: number): void {
     }
   }
 
-  game.updateWorld(timeSec);
+  game.updateWorld(timeSec, dt);
   explosion.update(dt);
   if (shakeAmp > 0.02) {
     const a = shakeAmp * 1.15;

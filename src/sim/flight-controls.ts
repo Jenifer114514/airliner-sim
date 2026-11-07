@@ -31,25 +31,38 @@ export class FlightControls {
   private keys = new Set<string>();
   private keyHandler = (e: KeyboardEvent) => this.onKey(e, true);
   private keyUpHandler = (e: KeyboardEvent) => this.onKey(e, false);
+  // v17: ウィンドウがフォーカスを失ったらキー状態をクリア（Alt+Tab などで
+  // 「押したまま離さない」入力が残留する事故を防ぐ）
+  private blurHandler = () => {
+    this.keys.clear();
+    this.releaseStick(); // 押下中の pitch/roll ラッチも解除（復帰後の暴走防止）
+  };
 
   attachKeyboard(): void {
     window.addEventListener('keydown', this.keyHandler);
     window.addEventListener('keyup', this.keyUpHandler);
+    window.addEventListener('blur', this.blurHandler);
   }
   detach(): void {
     window.removeEventListener('keydown', this.keyHandler);
     window.removeEventListener('keyup', this.keyUpHandler);
+    window.removeEventListener('blur', this.blurHandler);
+    this.keys.clear();
   }
 
   private onKey(e: KeyboardEvent, down: boolean): void {
     const k = e.key.toLowerCase();
     if (down) {
       this.keys.add(k);
-      // 切り替え系
-      if (k === 'g') this.gearDown = !this.gearDown;
-      if (k === 'v') this.flapUp();
-      if (k === 'f') this.flapDown();
-      if (k === 'x') this.spoilers = this.spoilers > 0 ? 0 : 1;
+      // 切り替え系 — v17: OS のキーリピート（長押し）では発火させない。
+      // 従来は押しっぱなしで G（ギア）・F/V（フラップ）・X（ spoilers ）が
+      // 数十 ms 間隔で高速トグルしていた。
+      if (!e.repeat) {
+        if (k === 'g') this.gearDown = !this.gearDown;
+        if (k === 'v') this.flapUp();
+        if (k === 'f') this.flapDown();
+        if (k === 'x') this.spoilers = this.spoilers > 0 ? 0 : 1;
+      }
     } else {
       this.keys.delete(k);
     }

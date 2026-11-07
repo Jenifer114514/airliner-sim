@@ -217,15 +217,18 @@ const flyTest = await page.evaluate(() => {
   };
   fresh(1600);
   const ctrl = (roll, pitch = 0) => ({ pitch, roll, yaw: 0, throttle: 0.5, brakes: false, flapsDeg: 0, spoilers: 0, gearDown: false });
+  // v17: getTelemetry() は同一フレーム共有の再利用オブジェクト（GC 対策）。
+  // 阶段横断で保持する値はスナップショットコピーして読む
+  const snap = () => { const x = g.getTelemetry(); return { heading: x.heading, bank: x.bank, pitch: x.pitch, alt: x.alt, crashed: x.crashed }; };
   for (let i = 0; i < 180; i++) g.updateFlight(1 / 60, ctrl(0));      // 安定化 3s
-  const before = g.getTelemetry();
+  const before = snap();
   for (let i = 0; i < 60; i++) g.updateFlight(1 / 60, ctrl(0.22));    // 右パルス 1s
-  const mid = g.getTelemetry();
+  const mid = snap();
   for (let i = 0; i < 120; i++) g.updateFlight(1 / 60, ctrl(0.22));    // 保持 → 合計 3s
-  const mid2 = g.getTelemetry();
+  const mid2 = snap();
   const r = ((mid2.heading - before.heading + 540) % 360) - 180;
   for (let i = 0; i < 150; i++) g.updateFlight(1 / 60, ctrl(0, 0));    // 水平復帰
-  const lvl = g.getTelemetry();
+  const lvl = snap();
   // ピッチ: 手前引き相当 +pitch で機首が上がるか
   const p0 = lvl.pitch;
   for (let i = 0; i < 90; i++) g.updateFlight(1 / 60, ctrl(0, 0.5));

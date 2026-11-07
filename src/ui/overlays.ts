@@ -37,4 +37,8 @@ export class Overlays {
     this.els.webglDetail.innerHTML = detail;
     this.els.webgl.classList.remove('hidden');
   }
+  /** v17: webglcontextrestored 時の復帰用（エラーオーバーレイを閉じて続行） */
+  hideWebglError(): void {
+    this.els.webgl.classList.add('hidden');
+  }
 }

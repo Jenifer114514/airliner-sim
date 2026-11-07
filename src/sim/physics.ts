@@ -20,6 +20,8 @@ import type { AirlinerSpec } from '../config/aircraft.js';
 import { airDensity, dynamicPressure, indicatedAirspeed, G, RHO0 } from './atmosphere.js';
 import { computeCoefficients, type ControlState } from './aero.js';
 
+const AXIS_Y = /* @__PURE__ */ new THREE.Vector3(0, 1, 0);
+
 export interface PhysicsTelemetry {
   position: THREE.Vector3;
   quaternion: THREE.Quaternion;
@@ -147,8 +149,20 @@ export class AircraftPhysics {
   }
 
   /** 固定時間刻み（デフォルト 1/120 s）で 1 ステップ */
+  /** 物理ステップ数（v17: 1 フレーム 1 回のテレメトリ計算に使うバージョン番号） */
+  simVersion = 0;
+  private telObj: PhysicsTelemetry | null = null;
+  private telFwd = new THREE.Vector3();
+  private telRight = new THREE.Vector3();
+  private telUp = new THREE.Vector3();
+  private telVAir = new THREE.Vector3();
+  private telVBody = new THREE.Vector3();
+  private telQinv = new THREE.Quaternion();
+  private liftDirTmp = new THREE.Vector3();
+
   step(dt: number, controls: ControlState, elevatorTrim = 0): void {
     if (this.crashed) return;
+    this.simVersion++;
     const q0 = this.quaternion;
 
     // ---------- 0. 乱流ガスト・燃料（Phase 5） ----------
@@ -210,13 +224,13 @@ export class AircraftPhysics {
     if (tas > 0.5) {
       // 抗力: 対気速度と逆方向
       const drag = qbar * this.wingArea * co.CD;
-      this.fBody.addScaledVector(bv.divideScalar(tas), -drag); // bv は単位ベクトル化済み
-      // 揚力: 対気速度に直交し機体縦平面内（vHat × 右軸で +Y 側）
-      const liftDir = this.tmpV.set(0, 0, 0)
-        .copy(bv).cross(this.tmpV2.set(1, 0, 0)).normalize(); // vHat × X → (0, cosα, sinα) 系
-      // ↑ bv は vHat。cross 後に tmpV2 を使い回すため順序注意 → 下で再計算し直す
+      bv.divideScalar(tas); // bv = vHat（機体座標の対気速度単位ベクトル）
+      this.fBody.addScaledVector(bv, -drag);
+      // 揚力: 対気速度に直交し機体縦平面内。方向 = vHat × 機体+X = (0, bv.z, -bv.y)
+      //（v17: 旧実装は tmpV/tmpV2 の書き換え順序に依存していて脆かった。独立 scratch に統一）
       const lift = qbar * this.wingArea * co.CL;
-      this.fBody.addScaledVector(liftDir, lift);
+      this.liftDirTmp.set(0, bv.z, -bv.y).normalize();
+      this.fBody.addScaledVector(this.liftDirTmp, lift);
       // 横力: +X（右）方向
       this.fBody.x += qbar * this.wingArea * co.CY;
       // 推力: 機首 +Z
@@ -243,9 +257,15 @@ export class AircraftPhysics {
     this.tmpV.copy(this.fBody).applyQuaternion(this.tmpQ);
     this.tmpV.y -= this.mass * G; // 重力
     this.tmpV.divideScalar(this.mass); // 加速度
-    // G 計測（機体縦方向の荷重 ≈ 機体 +Y 抗力込み）
-    const gLoadBody = this.fBody.y / (this.mass * G) + 0; // 揚力側
-    this.gLoadSmooth += (Math.max(gLoadBody, -0.4) - this.gLoadSmooth) * Math.min(dt * 6, 1);
+    // G 計測（荷重計 = 揚力成分。v17: 着陸脚支持時は床反力込みで 1G を表示 —
+    // 旧は地上で常時 ~0G。空中↔地上で片側ずつだけ平滑化を進める（両項同時だと
+    // 引き合って固定点 ≈0.5 になる）)
+    if (this.onGround) {
+      this.gLoadSmooth += (1 - this.gLoadSmooth) * Math.min(dt * 5, 1);
+    } else {
+      const gLoadBody = this.fBody.y / (this.mass * G);
+      this.gLoadSmooth += (Math.max(gLoadBody, -0.4) - this.gLoadSmooth) * Math.min(dt * 6, 1);
+    }
 
     this.velocity.addScaledVector(this.tmpV, dt);
     this.position.addScaledVector(this.velocity, dt);
@@ -312,11 +332,13 @@ export class AircraftPhysics {
         else bvG.z = 0;
         this.velocity.copy(bvG).applyQuaternion(this.quaternion);
 
-        // 低速ヨー（前輪操作）: ラダーで方向転換（+ = 右）
+        // 低速ヨー（前輪操作）: ラダーで方向転換（+ = 右）。
+        // v17: 8 m/s まで立ち上げ 30→55 m/s で滑らかにフェード（旧は 30 超で突然ゼロ）
         const speed = this.velocity.length();
-        if (speed < 30) {
-          const steer = -controls.rudder * Math.min(speed / 8, 1) * 0.55; // ミラー整合
-          this.tmpQ.setFromAxisAngle(new THREE.Vector3(0, 1, 0), steer * dt);
+        const steerAuth = Math.min(speed / 8, 1) * Math.max(0, 1 - (speed - 30) / 25);
+        if (steerAuth > 0.001) {
+          const steer = -controls.rudder * steerAuth * 0.55; // ミラー整合
+          this.tmpQ.setFromAxisAngle(AXIS_Y, steer * dt);
           this.quaternion.multiply(this.tmpQ);
         }
 
@@ -346,39 +368,47 @@ export class AircraftPhysics {
     }
   }
 
-  /** テレメトリ（表示用に変換） */
+  /** テレメトリ（表示用に変換）。v17: 永続オブジェクト再利用で 1 呼び出しあたり
+   *  ~10 個のベクタ生成をやめ GC カクつきを解消。ガストを対気速度に含め計器と
+   *  物理一致させた。呼び出し側は同一フレーム内のみ参照する前提（lastTel 経由）。*/
   telemetry(): PhysicsTelemetry {
-    const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(this.quaternion);
-    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.quaternion);
-    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.quaternion);
+    const t = (this.telObj ??= {
+      position: new THREE.Vector3(), quaternion: new THREE.Quaternion(),
+      velocity: new THREE.Vector3(), omega: new THREE.Vector3(),
+      tas: 0, ias: 0, alt: 0, agl: 0, heading: 0, pitch: 0, bank: 0, vspeed: 0,
+      aoa: 0, sideslip: 0, gLoad: 0, throttle: 0, onGround: false, crashed: false,
+      distanceFlown: 0, fuelFrac: 0, groundSpeed: 0, windSpeed: 0, windDirDeg: 0
+    });
+    const fwd = this.telFwd.set(0, 0, 1).applyQuaternion(this.quaternion);
+    const right = this.telRight.set(1, 0, 0).applyQuaternion(this.quaternion);
+    const up = this.telUp.set(0, 1, 0).applyQuaternion(this.quaternion);
     const rho = airDensity(this.position.y);
-    const vAir = new THREE.Vector3().copy(this.velocity).sub(this.wind);
+    const vAir = this.telVAir.copy(this.velocity).sub(this.wind).sub(this.gust);
     const tas = vAir.length();
-    const vBody = vAir.applyQuaternion(new THREE.Quaternion().copy(this.quaternion).invert());
-    return {
-      position: this.position.clone(),
-      quaternion: this.quaternion.clone(),
-      velocity: this.velocity.clone(),
-      omega: this.omega.clone(),
-      tas,
-      ias: indicatedAirspeed(tas, rho),
-      alt: this.position.y,
-      agl: this.position.y - this.groundHeight(this.position.x, this.position.z),
-      heading: ((Math.atan2(fwd.x, -fwd.z) * 180) / Math.PI + 360) % 360,
-      pitch: (Math.asin(Math.min(1, Math.max(-1, fwd.y))) * 180) / Math.PI,
-      bank: -(Math.atan2(-right.y, up.y) * 180) / Math.PI,  // +=右バンク（ミラー補正後）
-      vspeed: this.velocity.y,
-      aoa: (Math.atan2(-vBody.y, Math.max(vBody.z, 0.1)) * 180) / Math.PI,
-      sideslip: -(Math.atan2(vBody.x, Math.max(vBody.z, 0.1)) * 180) / Math.PI,  // +=右スリップ
-      gLoad: this.gLoadSmooth,
-      throttle: this.throttle,
-      onGround: this.onGround,
-      crashed: this.crashed,
-      distanceFlown: this.distanceFlown,
-      fuelFrac: this.fuelFrac,
-      groundSpeed: Math.hypot(this.velocity.x, this.velocity.z),
-      windSpeed: Math.hypot(this.wind.x, this.wind.z),
-      windDirDeg: ((Math.atan2(-this.wind.x, this.wind.z) * 180) / Math.PI + 360) % 360
-    };
+    const vBody = this.telVBody.copy(vAir).applyQuaternion(this.telQinv.copy(this.quaternion).invert());
+    t.position.copy(this.position);
+    t.quaternion.copy(this.quaternion);
+    t.velocity.copy(this.velocity);
+    t.omega.copy(this.omega);
+    t.tas = tas;
+    t.ias = indicatedAirspeed(tas, rho);
+    t.alt = this.position.y;
+    t.agl = this.position.y - this.groundHeight(this.position.x, this.position.z);
+    t.heading = ((Math.atan2(fwd.x, -fwd.z) * 180) / Math.PI + 360) % 360;
+    t.pitch = (Math.asin(Math.min(1, Math.max(-1, fwd.y))) * 180) / Math.PI;
+    t.bank = -(Math.atan2(-right.y, up.y) * 180) / Math.PI;  // +=右バンク（ミラー補正後）
+    t.vspeed = this.velocity.y;
+    t.aoa = (Math.atan2(-vBody.y, Math.max(vBody.z, 0.1)) * 180) / Math.PI;
+    t.sideslip = -(Math.atan2(vBody.x, Math.max(vBody.z, 0.1)) * 180) / Math.PI;  // +=右スリップ
+    t.gLoad = this.gLoadSmooth;
+    t.throttle = this.throttle;
+    t.onGround = this.onGround;
+    t.crashed = this.crashed;
+    t.distanceFlown = this.distanceFlown;
+    t.fuelFrac = this.fuelFrac;
+    t.groundSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+    t.windSpeed = Math.hypot(this.wind.x, this.wind.z);
+    t.windDirDeg = ((Math.atan2(-this.wind.x, this.wind.z) * 180) / Math.PI + 360) % 360;
+    return t;
   }
 }

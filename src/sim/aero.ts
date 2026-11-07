@@ -16,7 +16,7 @@ export interface ControlState {
   aileron: number;
   /** [-1,1] + = 右ヨー */
   rudder: number;
-  /** フラップ角度 [deg]（0..30） */
+  /** フラップ角度 [deg]（0..40） */
   flapsDeg: number;
   /** スポイラー [0..1] */
   spoilers: number;
@@ -58,7 +58,10 @@ export function computeCoefficients(
   const sp = Math.min(Math.max(controls.spoilers, 0), 1);
 
   // ---- 揚力係数 ----
-  const s = smoothstep(ALPHA_STALL, ALPHA_STALL + 0.22, Math.abs(alpha));
+  // v17: 失速角にフラップ依存を追加（下げた翼は剥離が早い＝僅かに手前へ）。
+  // 旧は失速角が flap 固定値で、CL 係数だけが flap 依存だった。
+  const aStall = ALPHA_STALL - 0.0009 * Math.min(Math.max(controls.flapsDeg, 0), 40);
+  const s = smoothstep(aStall, aStall + 0.22, Math.abs(alpha));
   const clLinear = 0.38 + 5.2 * alpha + 0.85 * flapFrac;
   const clFlat = 1.15 * Math.sin(2 * alpha);
   let CL = (1 - s) * clLinear + s * clFlat;

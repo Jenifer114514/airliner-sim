@@ -77,7 +77,7 @@ export function makeConcreteTexture(): THREE.CanvasTexture {
  *  y=0 と y=H が機体上面のシーム、y=H/2 が腹部。上下対称のデザインが必須）
  *  v2: 2048×1024 高解像 / 窓はフレーム+ガラス勾配+反射ストリーク / 双チートライン /
  *  社名・登録記号文字 / ドアは窓を跨ぐ形状＋窓 / 腹部汚れうっすら */
-export function makeFuselageTexture(
+function createFuselageTextureRaw(
   top: number, bottom: number, accent: number, windowCount: number,
   liveryName = 'SKYLINER', registration = 'JA00AI'
 ): THREE.CanvasTexture {
@@ -244,7 +244,7 @@ export function makeFuselageTexture(
 }
 
 /** 垂直尾翼サイドの liveried テクスチャ（u=弦方向 前縁→後縁 / v=根本→先端） */
-export function makeTailTexture(top: number, bottom: number, accent: number, name: string): THREE.CanvasTexture {
+function createTailTextureRaw(top: number, bottom: number, accent: number, name: string): THREE.CanvasTexture {
   const W = 512, H = 384;
   const [c, ctx] = makeCanvas(W, H);
   const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
@@ -278,7 +278,7 @@ export function makeTailTexture(top: number, bottom: number, accent: number, nam
 }
 
 /** エンジンファン面 v2（放射ブレード + スワール入りハブ + 外周影） */
-export function makeFanTexture(): THREE.CanvasTexture {
+function createFanTextureRaw(): THREE.CanvasTexture {
   const S = 256;
   const [c, ctx] = makeCanvas(S, S);
   ctx.fillStyle = '#0e1216';
@@ -334,7 +334,7 @@ export function makeFanTexture(): THREE.CanvasTexture {
  * 縦方向 ≈2.4m ピッチのフレーム線 × 周回 15° ピッチのストリンガー線。
  * normal は接空間エンコード（フラット=128,128,255）、溝の両側で ±傾斜。
  */
-export function makePanelMaps(): { normalMap: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture } {
+function createPanelMapsRaw(): { normalMap: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture } {
   const S = 512;
   const CELL = S / 8;
   // ---- normal map ----
@@ -442,7 +442,7 @@ export function makeCloudTexture(seed = 7, groundShade = true): THREE.CanvasText
 }
 
 /** コックピット計器盤（PFD/ND の簡易表示を描画） */
-export function makePanelTexture(): THREE.CanvasTexture {
+function createPanelTextureRaw(): THREE.CanvasTexture {
   const [c, ctx] = makeCanvas(1024, 512);
   ctx.fillStyle = '#1a1f26';
   ctx.fillRect(0, 0, 1024, 512);
@@ -487,4 +487,44 @@ export function makePanelTexture(): THREE.CanvasTexture {
 // v16: 地面ディテールは world/prime（worker で世界生成と同時描画）へ移動済み。512²・NoColorSpace・Repeat
 export function makeGroundDetailTexture(): THREE.CanvasTexture {
   return primeTex('detail')!;
+}
+
+// ═════ v17: 機体テクスチャ共有キャッシュ ═════
+// material.dispose() は texture を解放しないため、以前は buildAirliner ごとに
+// 2048×1024 級 CanvasTexture が GPU から抜けず、機体切替/再スタートでリークした。
+// 引数キーでキャッシュし再利用（機体は少数なので実質バウンド）。差し替え側
+// （game.disposeSubtree）は geometry/material のみ破棄し、これらの共有 texture は
+// 破棄しない — 参照が残って壊れることを構造的に起こさない。
+const gTexCache = new Map<string, THREE.CanvasTexture>();
+const gMapsCache = new Map<string, { normalMap: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture }>();
+
+export function makeFuselageTexture(
+  top: number, bottom: number, accent: number, windowCount: number,
+  liveryName = 'SKYLINER', registration = 'JA00AI'
+): THREE.CanvasTexture {
+  const key = `fus:${top}|${bottom}|${accent}|${windowCount}|${liveryName}|${registration}`;
+  let t = gTexCache.get(key);
+  if (!t) { t = createFuselageTextureRaw(top, bottom, accent, windowCount, liveryName, registration); gTexCache.set(key, t); }
+  return t;
+}
+export function makeTailTexture(top: number, bottom: number, accent: number, name: string): THREE.CanvasTexture {
+  const key = `tail:${top}|${bottom}|${accent}|${name}`;
+  let t = gTexCache.get(key);
+  if (!t) { t = createTailTextureRaw(top, bottom, accent, name); gTexCache.set(key, t); }
+  return t;
+}
+export function makeFanTexture(): THREE.CanvasTexture {
+  let t = gTexCache.get('fan');
+  if (!t) { t = createFanTextureRaw(); gTexCache.set('fan', t); }
+  return t;
+}
+export function makePanelTexture(): THREE.CanvasTexture {
+  let t = gTexCache.get('panel');
+  if (!t) { t = createPanelTextureRaw(); gTexCache.set('panel', t); }
+  return t;
+}
+export function makePanelMaps(): { normalMap: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture } {
+  let m = gMapsCache.get('panelMaps');
+  if (!m) { m = createPanelMapsRaw(); gMapsCache.set('panelMaps', m); }
+  return m;
 }

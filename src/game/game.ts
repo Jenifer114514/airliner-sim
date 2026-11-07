@@ -51,6 +51,48 @@ const BLOB_NOR = new THREE.Vector3();
 const QUAT_TILT = new THREE.Quaternion();
 const QUAT_LAYOUT = new THREE.Quaternion();
 
+/** three.js サブツリーの GPU リソースを解放する（v17）。
+ *  texture は textures.ts の共有キャッシュ側が所有するため dispose しない —
+ *  機体切替/再スタートのたびに 2048×1024 級テクスチャがリークしていた対策の後半。*/
+function disposeSubtree(root: THREE.Object3D): void {
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (mesh.geometry) mesh.geometry.dispose();
+    const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
+    if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+    else mat?.dispose();
+  });
+}
+
+/** デモ軌道状態 → 汎用テレメトリ変換（getTelemetry のデモ側） */
+function demoToTelemetry(s: DemoState): PhysicsTelemetry {
+  return {
+    position: s.position,
+    quaternion: s.quaternion,
+    velocity: s.velocity,
+    omega: new THREE.Vector3(),
+    tas: s.speed,
+    ias: s.speed,
+    alt: s.altitude,
+    agl: s.altitude,
+    heading: s.heading,
+    pitch: s.pitch,
+    bank: s.bank,
+    vspeed: s.vspeed,
+    aoa: 0,
+    sideslip: 0,
+    gLoad: 1,
+    throttle: s.throttle,
+    onGround: s.altitude < 4,
+    crashed: false,
+    distanceFlown: 0,
+    fuelFrac: 0.8,
+    groundSpeed: s.speed,
+    windSpeed: 0,
+    windDirDeg: 0
+  };
+}
+
 export class Game {
   state: GameState = 'menu';
   readonly quality = new QualityManager();
@@ -87,6 +129,9 @@ export class Game {
   /** オートパイロット（自由飛行のみ。描画・入力は干渉しない） */
   readonly ap = new Autopilot();
   private lastTel: PhysicsTelemetry | null = null;
+  private lastTelVersion = -1;
+  private apAccum = 0;
+  private lastApCmd: import('../sim/autopilot.js').ApCommand | null = null;
   private lastDemoState: DemoState | null = null;
 
   // ポスト処理（bloom）: high/ultra のみ有効
@@ -212,10 +257,16 @@ export class Game {
     if (this.lastEnvIds) this.applyEnvironment(...this.lastEnvIds);
   }
 
-  /** 太陽影カメラの範囲・解像度をプリセットから適用（map は破棄して作り直し） */
+  private lastShadowKey = '';
+  /** 太陽影カメラの範囲・解像度をプリセットから適用（map は破棄して作り直し）。
+   *  v17: プリセットの影パラメータが前回と同一なら dispose・再生成をスキップ
+   *  （自動品質の降格→復帰のたびに 1024²/2048² を積み直すコストの防止）。*/
   private applyShadowSettings(): void {
     const sun = this.sky.sun;
     const p = this.quality.preset;
+    const key = p.shadows ? `on:${p.shadowMapSize}:${p.shadowRange}` : 'off';
+    if (key === this.lastShadowKey) return;
+    this.lastShadowKey = key;
     sun.castShadow = p.shadows;
     if (!p.shadows) return;
     if (sun.shadow.map) {
@@ -285,6 +336,9 @@ export class Game {
     if (this.physics) {
       this.physics.wind.copy(this.envWind);
       this.physics.turbulence = this.envTurbulence;
+      // v17: テレメトリは simVersion ゲートでキャッシュ — 停止中に風を変えても
+      // 次のステップが来るまで計器が古いままにならないよう無効化する
+      this.lastTelVersion = -1;
     }
   }
 
@@ -329,13 +383,7 @@ export class Game {
   private buildPreview(spec: AirlinerSpec): void {
     if (this.previewAircraft) {
       const g = this.previewAircraft.group;
-      g.traverse((o) => {
-        const mesh = o as THREE.Mesh;
-        if (mesh.geometry) mesh.geometry.dispose();
-        const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
-        if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-        else mat?.dispose();
-      });
+      disposeSubtree(g); // v17: texture は共有キャッシュ（textures.ts）なので dispose 不要
       this.previewScene.remove(g);
     }
     // メニュープレビューは 1 機のみ・フルディテール（機体グラフィックの魅せ場）
@@ -387,9 +435,10 @@ export class Game {
     this.playerSpec = getAircraftSpec(aircraftId);
     this.flightMode = mode;
 
-    // 既存プレイヤー機体を破棄
+    // 既存プレイヤー機体を破棄（v17: 旧実装は scene.remove のみで geometry/material がリーク）
     if (this.player) {
       this.scene.remove(this.player.group);
+      disposeSubtree(this.player.group);
     }
     this.player = buildAirliner(this.playerSpec);
     this.cockpit = buildCockpit(this.playerSpec);
@@ -406,10 +455,11 @@ export class Game {
       this.physics.flapsDeg = 5;
       this.ap.reset();
       this.lastTel = this.physics.telemetry();
+      this.lastTelVersion = this.physics.simVersion; // v17: 初帧からゲートを一致させる
       this.physics.wind.copy(this.envWind);
       this.physics.turbulence = this.envTurbulence;
       this.physicsAccum = 0;
-      const t = this.physics.telemetry();
+      const t = this.telemetryNow();
       this.rig.snap({
         position: t.position,
         quaternion: t.quaternion,
@@ -452,6 +502,7 @@ export class Game {
       this.physics.throttle = 0;
       this.ap.reset();
       this.lastTel = this.physics.telemetry();
+      this.lastTelVersion = this.physics.simVersion;
     } else {
       this.demo.reset();
     }
@@ -472,43 +523,34 @@ export class Game {
     return this.lastDemoState;
   }
 
-  /** HUD 用テレメトリ（物理 or デモの両対応） */
+  /** 物理テレメトリ（simVersion ゲート付き・physics 存在が自明な場所用） */
+  private telemetryNow(): PhysicsTelemetry {
+    const p = this.physics!;
+    if (p.simVersion !== this.lastTelVersion || !this.lastTel) {
+      this.lastTel = p.telemetry();
+      this.lastTelVersion = p.simVersion;
+    }
+    return this.lastTel;
+  }
+
+  /** HUD 用テレメトリ（物理 or デモの両対応）。v17: physics.simVersion が
+   *  進んだフレームでのみ telemetry() を再計算（1 フレームに 4 回呼ばれても 1 回）。*/
   getTelemetry(): PhysicsTelemetry | null {
     if (this.flightMode === 'free' && this.physics) {
-      return this.physics.telemetry();
+      if (this.physics.simVersion !== this.lastTelVersion || !this.lastTel) {
+        this.lastTel = this.physics.telemetry();
+        this.lastTelVersion = this.physics.simVersion;
+      }
+      return this.lastTel;
     }
     const s = this.lastDemoState;
-    if (!s) return null;
-    return {
-      position: s.position,
-      quaternion: s.quaternion,
-      velocity: s.velocity,
-      omega: new THREE.Vector3(),
-      tas: s.speed,
-      ias: s.speed,
-      alt: s.altitude,
-      agl: s.altitude,
-      heading: s.heading,
-      pitch: s.pitch,
-      bank: s.bank,
-      vspeed: s.vspeed,
-      aoa: 0,
-      sideslip: 0,
-      gLoad: 1,
-      throttle: s.throttle,
-      onGround: s.altitude < 4,
-      crashed: false,
-      distanceFlown: 0,
-      fuelFrac: 0.8,
-      groundSpeed: s.speed,
-      windSpeed: 0,
-      windDirDeg: 0
-    };
+    return s ? demoToTelemetry(s) : null;
   }
+
 
   getFlightInfo(): { flapsDeg: number; gearDown: boolean; phase: string; crashed: boolean } {
     if (this.flightMode === 'free' && this.physics) {
-      const t = this.physics.telemetry();
+      const t = this.telemetryNow();
       const phase = t.crashed ? 'CRASHED'
         : t.onGround
           ? (t.ias > 3 ? 'TAKEOFF ROLL' : (t.throttle > 0.02 ? 'GROUND' : 'PARKED'))
@@ -574,13 +616,30 @@ export class Game {
       const ctrl = { ...base };
       // AP 接続中は操縦系を置換（rudder/ブレーキ/フラップ/ギアは手動のまま）
       const apIn = this.apInput();
+      let cmd = this.lastApCmd;
       if (apIn) {
-        const cmd = this.ap.step(dt, apIn, this.airport);
-        if (cmd) {
-          ctrl.pitch = cmd.pitch;
-          ctrl.roll = cmd.roll;
-          ctrl.throttle = cmd.throttle;
+        // v17: AP 更新を固定 60 Hz 刻みに（従来は描画 dt 直渡しが 120Hz でゲイン
+        // 2 倍・30Hz で半分、物理サブステップに対する取りこぼしも発生）。
+        // サブステップ間の指令は直前値をホールド（1 フレームぶん古いだけ）。
+        this.apAccum += dt;
+        const H = 1 / 60;
+        let guard = 0;
+        while (this.apAccum >= H && guard < 8) {
+          const c = this.ap.step(H, apIn, this.airport);
+          if (c) cmd = c;
+          this.apAccum -= H;
+          guard++;
         }
+        if (guard >= 8) this.apAccum = 0; // 長時間フレームでバックログ爆発させない
+      } else {
+        this.apAccum = 0;
+        cmd = null;
+      }
+      this.lastApCmd = cmd;
+      if (cmd) {
+        ctrl.pitch = cmd.pitch;
+        ctrl.roll = cmd.roll;
+        ctrl.throttle = cmd.throttle;
       }
       this.physics.throttle = ctrl.throttle;
       this.physics.flapsDeg = ctrl.flapsDeg;
@@ -601,8 +660,7 @@ export class Game {
         });
         this.physicsAccum -= h;
       }
-      const t = this.physics.telemetry();
-      this.lastTel = t;
+      const t = this.telemetryNow(); // v17: simVersion ゲートで同一フレームは 1 計算のみ
       if (t.crashed && this.ap.engaged) this.ap.reset();
       this.player.group.position.copy(t.position);
       this.player.group.quaternion.copy(t.quaternion);
@@ -632,19 +690,19 @@ export class Game {
   }
 
   /** 描画共通（世界アニメーション） */
-  updateWorld(timeSec: number): void {
+  updateWorld(timeSec: number, dt = 1 / 60): void {
     this.sky.sky.position.copy(this.camera.position);
     // v16: city/nature のチャンク LOD 切替（0.25s スロットル・距離判定のみで安価）
-    this.lodTimer -= 1 / 60; // clouds と同じ固定ステップ前提
+    this.lodTimer -= dt; // v17: 実 dt（従来は固定 1/60 で 120Hz 環境で LOD 間隔が倍速に）
     if (this.lodTimer <= 0) {
       this.lodTimer = 0.25;
       updateLodGroups(this.camera.position);
     }
     this.water.update(timeSec);
     this.updateTerrainAndFog();
-    this.clouds.update(1 / 60);
-    this.rain.update(1 / 60, this.camera.position);
-    this.player?.spinFans(1 / 60);
+    this.clouds.update(dt); // v17: 実 dt
+    this.rain.update(dt, this.camera.position);
+    this.player?.spinFans(dt); // v17: 実 dt
     this.player?.updateLights(timeSec);
     if (this.demo.finished && this.state === 'flying') {
       this.demo.reset();
@@ -745,6 +803,7 @@ export class Game {
   disposePlayer(): void {
     if (this.player) {
       this.scene.remove(this.player.group);
+      disposeSubtree(this.player.group); // v17: cockpit 群もこのサブツリーに含まれる
       this.player = null;
     }
     this.cockpit = null;
