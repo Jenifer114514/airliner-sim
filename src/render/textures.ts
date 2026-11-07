@@ -3,6 +3,7 @@
  * 滑走路・路面・建物窓・機体窓列・ファン面・計器盤などを描画する。
  */
 import * as THREE from 'three';
+import { primeTex, primeRunwayTex } from '../world/prime.js';
 
 function makeCanvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const c = document.createElement('canvas');
@@ -39,148 +40,16 @@ function toTexture(canvas: HTMLCanvasElement, repeat?: [number, number]): THREE.
   return t;
 }
 
-/** 滑走路表面（中央線・停止線・番号・タッチダウンゾーン・ゴム付着） */
+/** 滑走路表面（prime 事前生成 → 未取得なら world/texDraw 同一コードで同期描画。画素一致） */
 export function makeRunwayTexture(width: number, length: number, numA: string, numB: string, resPx = 512): THREE.CanvasTexture {
-  const [c, ctx] = makeCanvas(resPx, resPx * 8);
-  // 既定ロジックは 512×4096 設計 → 解像度分を transform でスケール（線幅・文字も追随）
-  const K = resPx / 512;
-  ctx.scale(K, K);
-  // アスファルト（継ぎ目とパッチ）
-  ctx.fillStyle = '#31363c';
-  ctx.fillRect(0, 0, 512, 4096);
-  let seed = 1234;
-  const rand = () => {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    return seed / 0x7fffffff;
-  };
-  for (let i = 0; i < 90; i++) {
-    // 補修パッチ
-    const v = 42 + rand() * 26;
-    ctx.fillStyle = `rgba(${v},${v + 2},${v + 6},0.35)`;
-    ctx.fillRect(rand() * 512 - 40, rand() * 4096 - 60, 40 + rand() * 120, 60 + rand() * 220);
-  }
-  for (let i = 0; i < 6000 * K * K; i++) {
-    const v = 34 + rand() * 44;
-    ctx.fillStyle = `rgba(${v},${v + 2},${v + 7},0.5)`;
-    ctx.fillRect(rand() * 512, rand() * 4096, 1 + rand() * 3, 1 + rand() * 3);
-  }
-  // 輪跡 + ゴム付着（タッチダウンゾーン濃い）
-  for (const x of [148, 205, 307, 364]) {
-    const g = ctx.createLinearGradient(x - 24, 0, x + 24, 0);
-    g.addColorStop(0, 'rgba(18,20,24,0)');
-    g.addColorStop(0.5, 'rgba(18,20,24,0.40)');
-    g.addColorStop(1, 'rgba(18,20,24,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(x - 24, 300, 48, 3500);
-  }
-  for (const sideY of [220, 3500]) {
-    const g = ctx.createLinearGradient(0, sideY - 200, 0, sideY + 420);
-    g.addColorStop(0, 'rgba(12,13,16,0)');
-    g.addColorStop(0.5, 'rgba(12,13,16,0.42)');
-    g.addColorStop(1, 'rgba(12,13,16,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(30, sideY - 200, 452, 620);
-  }
-  // 側線
-  ctx.fillStyle = '#dde2e6';
-  ctx.fillRect(18, 0, 8, 4096);
-  ctx.fillRect(486, 0, 8, 4096);
-  // 中央線（破線）
-  for (let y = 120; y < 3976; y += 150) {
-    ctx.fillRect(248, y, 16, 80);
-  }
-  // 停止線・ピアノキー（両端）
-  for (const endY of [40, 3936]) {
-    ctx.fillRect(30, endY, 452, 26);
-    for (let i = 0; i < 8; i++) {
-      ctx.fillRect(60 + i * 52, endY + 34, 30, 110);
-    }
-  }
-  // タッチダウンゾーンマーカー（3 組）
-  for (const sideY of [280, 3596]) {
-    for (let g = 0; g < 3; g++) {
-      const off = 150 * g;
-      const y0 = sideY > 2000 ? sideY - off : sideY + off;
-      for (const x of [70, 130, 352, 412]) {
-        ctx.fillRect(x, y0, 26, 120);
-      }
-    }
-  }
-  // 滑走路番号 + 矢印
-  ctx.fillStyle = '#e6eaee';
-  ctx.font = 'bold 150px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.save();
-  ctx.translate(256, 210);
-  ctx.rotate(Math.PI);
-  ctx.fillText(numA, 0, 0);
-  ctx.restore();
-  ctx.fillText(numB, 256, 3886);
-  // ランウェイ・グルービング（センター両側 1/3 に横溝。近接時にうっすら見える）
-  ctx.strokeStyle = 'rgba(16,18,22,0.13)';
-  ctx.lineWidth = 1;
-  for (let y = 60; y < 4036; y += 13) {
-    ctx.beginPath(); ctx.moveTo(96, y); ctx.lineTo(416, y); ctx.stroke();
-  }
   void width; void length;
-  const tex = toTexture(c);
-  tex.anisotropy = 16;
-  return tex;
+  return primeRunwayTex(numA, numB, resPx);
 }
+// v16: makeBuildingEmissiveTexture は削除（建物は building/buildingEm アトラスへ統合）
 
-/** 市街地の夜間窓（emissive 用: 窓の明滅パターン。dark=消灯 / 暖色=点灯） */
-export function makeBuildingEmissiveTexture(): THREE.CanvasTexture {
-  const [c, ctx] = makeCanvas(128, 256);
-  ctx.fillStyle = '#000000';
-  ctx.fillRect(0, 0, 128, 256);
-  let seed = 4242;
-  const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
-  for (let y = 8; y < 250; y += 16) {
-    for (let x = 6; x < 122; x += 14) {
-      const r = rand();
-      if (r < 0.42) continue; // 消灯
-      const warm = 180 + Math.floor(r * 70);
-      ctx.fillStyle = r > 0.9 ? `rgb(${warm},${warm},${warm})` : `rgb(${warm},${Math.floor(warm * 0.78)},${Math.floor(warm * 0.5)})`;
-      ctx.fillRect(x, y, 9, 10);
-    }
-  }
-  return toTexture(c, [2, 3]);
-}
-
-/** 誘導路（黄色センターライン + 縁 + 待機位置） */
+/** 誘導路（黄色センターライン + 縁 + 待機位置。prime 生成） */
 export function makeTaxiwayTexture(): THREE.CanvasTexture {
-  const [c, ctx] = makeCanvas(256, 1024);
-  ctx.fillStyle = '#3a4046';
-  ctx.fillRect(0, 0, 256, 1024);
-  let seed = 555;
-  const rand = () => {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    return seed / 0x7fffffff;
-  };
-  for (let i = 0; i < 1800; i++) {
-    const v = 50 + rand() * 30;
-    ctx.fillStyle = `rgba(${v},${v + 3},${v + 8},0.45)`;
-    ctx.fillRect(rand() * 256, rand() * 1024, 2 + rand() * 5, 2 + rand() * 5);
-  }
-  // 黄色センターライン
-  ctx.fillStyle = '#d8b64a';
-  ctx.fillRect(122, 0, 12, 1024);
-  // 縁線
-  ctx.fillStyle = 'rgba(210,215,220,0.5)';
-  ctx.fillRect(6, 0, 5, 1024);
-  ctx.fillRect(245, 0, 5, 1024);
-  // 待機位置マーク（3 箇所）
-  for (const y of [200, 512, 824]) {
-    ctx.fillStyle = '#e8e8e8';
-    ctx.fillRect(20, y, 216, 10);
-    ctx.fillStyle = '#d8b64a';
-    for (let i = 0; i < 6; i++) {
-      ctx.fillRect(24 + i * 36, y + 16, 12, 26);
-      ctx.fillRect(24 + i * 36, y - 32, 12, 26);
-    }
-  }
-  return toTexture(c, [1, 26]);
+  return primeTex('taxiway')!;
 }
 
 /** 誘導路標識（黄地に黒文字の簡易プレート） */
@@ -199,28 +68,9 @@ export function makeSignTexture(text: string): THREE.CanvasTexture {
   return toTexture(c);
 }
 
-/** 誘導路/エプロン用のコンクリート（継ぎ目つき） */
+/** 誘導路/エプロン用のコンクリート（prime 生成。シームレス 256²・64px 目地） */
 export function makeConcreteTexture(): THREE.CanvasTexture {
-  const [c, ctx] = makeCanvas(256, 256);
-  ctx.fillStyle = '#5a6068';
-  ctx.fillRect(0, 0, 256, 256);
-  let seed = 999;
-  const rand = () => {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    return seed / 0x7fffffff;
-  };
-  for (let i = 0; i < 900; i++) {
-    const v = 78 + rand() * 30;
-    ctx.fillStyle = `rgba(${v},${v + 3},${v + 8},0.4)`;
-    ctx.fillRect(rand() * 256, rand() * 256, 2 + rand() * 5, 2 + rand() * 5);
-  }
-  ctx.strokeStyle = 'rgba(40,44,50,0.8)';
-  ctx.lineWidth = 2;
-  for (let i = 0; i <= 256; i += 64) {
-    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 256); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(256, i); ctx.stroke();
-  }
-  return toTexture(c, [24, 24]);
+  return primeTex('concrete')!;
 }
 
 /** 胴体の窓列・ドア・ライン・社名（fusGeo 側で UV 入替済み: x=胴体長さ / y=周回角。
@@ -557,19 +407,7 @@ export function makeGlassTexture(): THREE.CanvasTexture {
   return toTexture(c, [6, 1]);
 }
 
-/** 建物の窓（市街地用・夜は非対応=昼固定） */
-export function makeBuildingTexture(): THREE.CanvasTexture {
-  const [c, ctx] = makeCanvas(128, 256);
-  ctx.fillStyle = '#6c7480';
-  ctx.fillRect(0, 0, 128, 256);
-  ctx.fillStyle = '#45525e';
-  for (let y = 8; y < 250; y += 16) {
-    for (let x = 6; x < 122; x += 14) {
-      ctx.fillRect(x, y, 9, 10);
-    }
-  }
-  return toTexture(c, [2, 3]);
-}
+// v16: makeBuildingTexture は削除（建物は world/texDraw の building アトラスへ統合）
 
 /** 雲スプライト（下影つきパフィー） */
 export function makeCloudTexture(seed = 7, groundShade = true): THREE.CanvasTexture {
@@ -646,82 +484,7 @@ export function makePanelTexture(): THREE.CanvasTexture {
   return toTexture(c);
 }
 
-/**
- * 地面ディテールタイル（地形 shader 用・NoColorSpace）: r=細粒、g=広斑、b=草葉ストローク。
- * 0.5 中心の乗算/勾配データ。512²=30m 繰り返し。シード固定 LCG で決定論的（スクショ再現性）。
- */
+// v16: 地面ディテールは world/prime（worker で世界生成と同時描画）へ移動済み。512²・NoColorSpace・Repeat
 export function makeGroundDetailTexture(): THREE.CanvasTexture {
-  const S = 512;
-  let seed = 987654321;
-  const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
-  const layer = (draw: (x: CanvasRenderingContext2D) => void): ImageData => {
-    const c = document.createElement('canvas');
-    c.width = c.height = S;
-    const ctx = c.getContext('2d')!;
-    ctx.fillStyle = '#808080';
-    ctx.fillRect(0, 0, S, S);
-    draw(ctx);
-    return ctx.getImageData(0, 0, S, S);
-  };
-  // 端をまたぐprimitiveはラップ描画（タイル継ぎ目ゼロ）
-  const wrap = (fn: (dx: number, dy: number) => void) => {
-    for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) fn(ox, oy);
-  };
-  const lr = layer((x) => {
-    for (let i = 0; i < 9000; i++) {
-      const px = rnd() * S, py = rnd() * S;
-      const v = rnd() < 0.5 ? 0 : 255;
-      x.fillStyle = `rgba(${v},${v},${v},${0.05 + rnd() * 0.12})`;
-      const wdt = 1 + (i % 2);
-      wrap((dx, dy) => x.fillRect(px + dx, py + dy, wdt, 1 + ((i >> 1) % 2)));
-    }
-  });
-  const lg = layer((x) => {
-    for (let i = 0; i < 260; i++) {
-      const px = rnd() * S, py = rnd() * S, rad = 34 + rnd() * 110;
-      const dark = rnd() < 0.5;
-      const v = dark ? 0 : 255;
-      wrap((dx, dy) => {
-        const g = x.createRadialGradient(px + dx, py + dy, 2, px + dx, py + dy, rad);
-        g.addColorStop(0, `rgba(${v},${v},${v},${0.10 + rnd() * 0.10})`);
-        g.addColorStop(1, `rgba(${v},${v},${v},0)`);
-        x.fillStyle = g;
-        x.beginPath();
-        x.arc(px + dx, py + dy, rad, 0, Math.PI * 2);
-        x.fill();
-      });
-    }
-  });
-  const lb = layer((x) => {
-    x.lineWidth = 1;
-    for (let i = 0; i < 5200; i++) {
-      const px = rnd() * S, py = rnd() * S;
-      const ang = -0.5 + rnd() * 1.0, len = 2 + rnd() * 4;
-      const v = rnd() < 0.55 ? 0 : 255;
-      x.strokeStyle = `rgba(${v},${v},${v},${0.10 + rnd() * 0.16})`;
-      wrap((dx, dy) => {
-        x.beginPath();
-        x.moveTo(px + dx, py + dy);
-        x.lineTo(px + dx + Math.cos(ang) * len, py + dy + Math.sin(ang) * len);
-        x.stroke();
-      });
-    }
-  });
-  const out = document.createElement('canvas');
-  out.width = out.height = S;
-  const ox = out.getContext('2d')!;
-  const oi = ox.createImageData(S, S);
-  for (let i = 0; i < S * S * 4; i += 4) {
-    oi.data[i] = lr.data[i];
-    oi.data[i + 1] = lg.data[i + 1];
-    oi.data[i + 2] = lb.data[i + 2];
-    oi.data[i + 3] = 255;
-  }
-  ox.putImageData(oi, 0, 0);
-  const t = new THREE.CanvasTexture(out);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.NoColorSpace;
-  t.anisotropy = 8;
-  t.needsUpdate = true;
-  return t;
+  return primeTex('detail')!;
 }

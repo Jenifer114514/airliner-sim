@@ -40,6 +40,7 @@ function gameTelToApInput(t: PhysicsTelemetry): ApInput {
 }
 import type { NormalizedControls } from '../sim/flight-controls.js';
 import { terrainHeight } from '../render/terrain.js';
+import { updateLodGroups } from '../render/lod.js';
 
 export type GameState = 'menu' | 'flying' | 'paused';
 export type FlightMode = 'free' | 'demo';
@@ -53,6 +54,7 @@ const QUAT_LAYOUT = new THREE.Quaternion();
 export class Game {
   state: GameState = 'menu';
   readonly quality = new QualityManager();
+  private lodTimer = 0;
   readonly rig: CameraRig;
   readonly demo = new DemoFlight();
 
@@ -630,6 +632,12 @@ export class Game {
   /** 描画共通（世界アニメーション） */
   updateWorld(timeSec: number): void {
     this.sky.sky.position.copy(this.camera.position);
+    // v16: city/nature のチャンク LOD 切替（0.25s スロットル・距離判定のみで安価）
+    this.lodTimer -= 1 / 60; // clouds と同じ固定ステップ前提
+    if (this.lodTimer <= 0) {
+      this.lodTimer = 0.25;
+      updateLodGroups(this.camera.position);
+    }
     this.water.update(timeSec);
     this.updateTerrainAndFog();
     this.clouds.update(1 / 60);

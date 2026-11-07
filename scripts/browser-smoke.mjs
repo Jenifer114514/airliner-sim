@@ -17,8 +17,8 @@ const browser = await chromium.launch({ executablePath: process.env.CHROME_BIN |
 });
 const page = await browser.newPage({ viewport: { width: 844, height: 390 } });
 const errors = [];
-page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message));
-page.on('console', (m) => { if (m.type() === 'error') errors.push('CONSOLE: ' + m.text()); });
+page.on('pageerror', (e) => { errors.push('PAGEERROR: ' + e.message); console.log('>>> PAGEERROR'); });
+page.on('console', (m) => { if (m.type() === 'error') { errors.push('CONSOLE: ' + m.text().split('\n').slice(0,2).join(' ')); console.log('>>> CONSOLE-ERR:', m.text().split('\n').filter((l) => /Type|Error/.test(l)).slice(0,2).join(' ').slice(0,120)); } });
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = '') => {
@@ -27,8 +27,13 @@ const check = (name, ok, detail = '') => {
 };
 
 await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
-await delay(2000);
-check('ページ起動', true);
+// v16: ブートは async（bake fetch → worldgen worker prime → Game 構築）。起動完了を能動待ち。
+let booted = true;
+try {
+  await page.waitForFunction(() => !!(window.__airliner && window.__airliner.game), null, { timeout: 30000 });
+} catch { booted = false; }
+check('ページ起動', booted);
+if (!booted) { console.log(errors.join('\n')); process.exit(1); }
 
 // 自由飛行開始
 await page.evaluate(() => {

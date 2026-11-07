@@ -1,346 +1,163 @@
 /**
- * render/city.ts — 市街地（InstancedMesh）と道路
- * 建物は 1 ドローコール。窓テクスチャのボックスを高さ・色味バリエーションで配置。
+ * render/city.ts — 市街地（チャンクバケット InstancedMesh + Texture Atlas + 距離 LOD）
+ * 配置計算自体は world/layout.ts（worldgen worker と共有）が持つ。ここでは
+ * レイアウト → GPU リソース化のみを行う。
+ * v16: 2.4km 格子のバケットへ分割し、近いバケットは Standard+アトラス map+影、
+ * 遠いは Lambert 単色（影なし）へ 0.25s 周期で切替。各メッシュは
+ * computeBoundingSphere() 済みなので Frustum Culling がチャンク単位で効く。
  */
 import * as THREE from 'three';
-import { makeRandom, clamp } from '../core/math.js';
-import { terrainHeight } from './terrain.js';
-import { AIRPORTS } from '../config/airports.js';
-import { makeBuildingTexture, makeBuildingEmissiveTexture } from './textures.js';
+import { getCityLayout, primeTex } from '../world/prime.js';
+import type { Bucket } from '../world/layout.js';
+import { registerLod, LOD_NEAR } from './lod.js';
 
 /** 建物当たり判定（main の衝突爆発用）。x,z=中心 r=半径 top=陸部高さ */
 export const buildingColliders: { x: number; z: number; r: number; top: number }[] = [];
 
-// 2026-11-06 v12: 幹線道路沿いの街路樹アンカー（buildCity で充填 → nature が実体化）
-export const roadsidePts: Array<{ x: number; z: number; s: number }> = [];
+/** インスタンス番号→アトラス様式セル（0..15）。rand 非消費の決定論ハッシュ */
+const faceOf = (i: number): number => (Math.imul(i + 1, 2654435761) >>> 27) & 15;
+
+/** アトラス 4×4 セル選択を <uv_vertex> 後に上書きするシェーダパッチ */
+function patchAtlasUV(mat: THREE.MeshStandardMaterial | THREE.MeshLambertMaterial): void {
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aFace;')
+      .replace('#include <uv_vertex>', `#include <uv_vertex>
+      {
+        vec2 cell = vec2(mod(aFace, 4.0), floor(aFace * 0.25));
+        #ifdef USE_MAP
+        vMapUv = (uv + cell) * 0.25;
+        #endif
+        #ifdef USE_EMISSIVEMAP
+        vEmissiveMapUv = (uv + cell) * 0.25;
+        #endif
+      }`);
+  };
+  mat.customProgramCacheKey = () => 'atlas-cell4x4';
+}
 
 export function buildCity(scene: THREE.Scene, count: number): THREE.Group {
-  buildingColliders.length = 0;
+  const L = getCityLayout(count);
   const group = new THREE.Group();
-  const rand = makeRandom(20261009);
+
+  // 建物コライダー（物理・衝突爆発）はレイアウトの flat 配列から復元
+  buildingColliders.length = 0;
+  {
+    const c = L.colliders; // float64 のままなので値は旧実装とビット一致
+    for (let i = 0; i + 3 < c.length; i += 4) {
+      buildingColliders.push({ x: c[i], z: c[i + 1], r: c[i + 2], top: c[i + 3] });
+    }
+  }
 
   const geo = new THREE.BoxGeometry(1, 1, 1);
   geo.translate(0, 0.5, 0); // バウンディングボックスを底面基準に
-  const emiTex = makeBuildingEmissiveTexture();
+  const atlas = primeTex('building')!;
+  const atlasEm = primeTex('buildingEm')!;
   const mat = new THREE.MeshStandardMaterial({
-    map: makeBuildingTexture(),
-    emissiveMap: emiTex,
+    map: atlas,
+    emissiveMap: atlasEm,
     emissive: new THREE.Color(0xffd9a0),
     emissiveIntensity: 0.0,
     metalness: 0.18,
     roughness: 0.72
   });
-  const mesh = new THREE.InstancedMesh(geo, mat, count);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
+  patchAtlasUV(mat);
+  const matLo = new THREE.MeshLambertMaterial({ color: 0x8d949d });
 
-  const dummy = new THREE.Object3D();
-  const color = new THREE.Color();
-  // 市街地中心: 空港の東北（滑走路から約 6〜12km）
-  const CX = 7800;
-  const CZ = -3200;
+  const lodEntries: Array<{ hi: THREE.Object3D; lo: THREE.Object3D; b: Bucket }> = [];
+  let faceSeq = 0;
+  const addBucket = (b: Bucket) => {
+    const gHi = geo.clone();
+    const faces = new Float32Array(b.n);
+    for (let i = 0; i < b.n; i++) faces[i] = faceOf(faceSeq++);
+    gHi.setAttribute('aFace', new THREE.InstancedBufferAttribute(faces, 1));
+    const hi = new THREE.InstancedMesh(gHi, mat, b.n);
+    (hi.instanceMatrix.array as Float32Array).set(b.m);
+    hi.instanceMatrix.needsUpdate = true;
+    hi.instanceColor = new THREE.InstancedBufferAttribute(b.c, 3);
+    hi.instanceColor.needsUpdate = true;
+    hi.castShadow = true;
+    hi.receiveShadow = true;
+    hi.computeBoundingSphere();
+    const lo = new THREE.InstancedMesh(geo, matLo, b.n);
+    (lo.instanceMatrix.array as Float32Array).set(b.m);
+    lo.instanceMatrix.needsUpdate = true;
+    lo.computeBoundingSphere();
+    group.add(hi, lo);
+    lodEntries.push({ hi, lo, b });
+  };
+  for (const b of L.buckets) addBucket(b);
 
-  // 2026-11-06 v12: 格子整合 — 建物をブロック辺（=街道）へスナップし、内部は空地のままにする
-  const CELL = 210;
-  for (let i = 0; i < count; i++) {
-    const angle = rand() * Math.PI * 2;
-    const radius = 600 + Math.pow(rand(), 0.7) * 3400;
-    const bx = CX + Math.cos(angle) * radius;
-    const bz = CZ + Math.sin(angle) * radius * 0.8;
-    const bcx = Math.round(bx / CELL) * CELL, bcz = Math.round(bz / CELL) * CELL; // ブロック中心
-    const ed = rand() < 0.5 ? 0 : 1; // 0=±x 辺に面する 1=±z 辺
-    const sgn = (ed === 0 ? Math.sign(bx - bcx) : Math.sign(bz - bcz)) || 1;
-    const along = (rand() - 0.5) * (CELL - 70); // 街道に沿った位置
-    const x = ed === 0 ? bcx + sgn * (CELL / 2 - 26) : bcx + along;
-    const z = ed === 1 ? bcz + sgn * (CELL / 2 - 26) : bcz + along;
-    // 外周リングロードの回廊には建てない（道路の連続性を保つ）
-    const rxx = (x - CX) / 1.24, rzz = z - CZ;
-    const rt = 2450 + Math.sin(Math.atan2(rzz, rxx) * 5 + 1.3) * 190;
-    if (Math.abs(Math.hypot(rxx, rzz) - rt) < 62) continue;
-    const y = terrainHeight(x, z);
-    if (y < 4) continue; // 海・砂浜には置かない
-
-    // 高層ほど中心に
-    const centerFactor = clamp(1 - radius / 3800, 0, 1);
-    const suburb = radius > 2750 && rand() < 0.55; // 2026-11-05: 外周は低層高密度帯（尺度変化＝距離感）
-    const h = suburb ? 9 + rand() * 15 : 22 + rand() * 90 * (0.35 + centerFactor * 1.4);
-    const w = suburb ? 13 + rand() * 16 : 26 + rand() * 38;
-    const d = suburb ? 13 + rand() * 16 : 26 + rand() * 38;
-    dummy.position.set(x, y - 1, z);
-    dummy.rotation.y = (rand() - 0.5) * 0.1; // 街道へ整列（v12）
-    if (ed === 0) dummy.scale.set(d, h, w); else dummy.scale.set(w, h, d);
-    dummy.updateMatrix();
-    mesh.setMatrixAt(i, dummy.matrix);
-    const tint = 0.72 + rand() * 0.28;
-    color.setRGB(tint * 0.95, tint * 0.97, tint);
-    mesh.setColorAt(i, color);
-    buildingColliders.push({ x, z, r: 0.4 * Math.hypot(w, d) + 3, top: y + h });
-  }
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  group.add(mesh);
-
-  // ---- 超高層ビル（スカイライン）: 都心核に 150〜330m グラスタワー群 ----
-  const TOWERS = 46;
-  const tGeo = new THREE.BoxGeometry(1, 1, 1);
-  tGeo.translate(0, 0.5, 0);
+  // ---- 超高層タワー（towers）: スカイラインなので LOD せず常にフル ----
   const tMat = new THREE.MeshStandardMaterial({
-    map: makeBuildingTexture(),
+    map: atlas,
     color: 0xbdd8ee,
-    emissiveMap: emiTex,
+    emissiveMap: atlasEm,
     emissive: new THREE.Color(0xfff0c8),
     emissiveIntensity: 0.0,
     metalness: 0.55,
     roughness: 0.3
   });
-  const tMesh = new THREE.InstancedMesh(tGeo, tMat, TOWERS);
-  tMesh.name = 'towers';
-  tMesh.castShadow = true;
-  tMesh.receiveShadow = false;
-  // 都心核（CX,CZ）+ 副核 3 箇所（浜・北・南ミクストユース）
-  const cores: [number, number, number][] = [
-    [CX, CZ, 1.0], [CX + 1500, CZ + 900, 0.62], [CX - 1350, CZ - 650, 0.55], [CX + 350, CZ - 1500, 0.45]
-  ];
-  let ti = 0;
-  for (let k = 0; k < cores.length && ti < TOWERS; k++) {
-    const [ox, oz, w] = cores[k];
-    const per = Math.min(k === 0 ? 22 : 8, TOWERS - ti);
-    for (let j = 0; j < per; j++) {
-      const a = rand() * Math.PI * 2;
-      const rr = Math.pow(rand(), 0.8) * (k === 0 ? 620 : 380);
-      const x = ox + Math.cos(a) * rr * 1.25;
-      const z = oz + Math.sin(a) * rr;
-      const y = terrainHeight(x, z);
-      if (y < 5) continue; // 海面・砂浜回避
-      const h = (150 + Math.pow(rand(), 1.7) * 185 * (0.55 + w * 0.75));
-      const bw = 24 + rand() * 20;
-      const bd = 24 + rand() * 20;
-      dummy.position.set(x, y - 2, z);
-      dummy.rotation.set(0, Math.round(rand() * 4) * (Math.PI / 2) + (rand() - 0.5) * 0.12, 0);
-      dummy.scale.set(bw, h, bd);
-      dummy.updateMatrix();
-      tMesh.setMatrixAt(ti, dummy.matrix);
-      const gt = 0.82 + rand() * 0.18;
-      color.setRGB(gt * 0.86, gt * 0.95, gt);
-      tMesh.setColorAt(ti, color);
-      buildingColliders.push({ x, z, r: 0.42 * Math.max(bw, bd) + 4, top: y + h });
-      ti++;
-    }
-  }
-  tMesh.count = ti;
-  tMesh.instanceMatrix.needsUpdate = true;
-  if (tMesh.instanceColor) tMesh.instanceColor.needsUpdate = true;
-  group.add(tMesh);
-
-  // 主要道路（地形追従リボン。旧: 平坦 Plane@y2.2 → 起伏と不整合で浮き/埋まりしていた）
-  const roadMat = new THREE.MeshStandardMaterial({ color: 0x2e3339, roughness: 0.95 });
-  const roads: THREE.Vector2[][] = [];
-  for (let i = 0; i < 3; i++) {
-    const a = 0.5 + i * 0.55;
-    const cx0 = CX - 2600 + i * 1900, cz0 = CZ + 800;
-    const dir = new THREE.Vector2(Math.sin(a), Math.cos(a));
-    roads.push([
-      new THREE.Vector2(cx0, cz0).addScaledVector(dir, -4500),
-      new THREE.Vector2(cx0, cz0).addScaledVector(dir, 4500)
-    ]);
-  }
-  // 空港アクセス道路（滑走路端 → 市街地）
-  roads.push([
-    new THREE.Vector2(2100, -1900), new THREE.Vector2(3200, -2200), new THREE.Vector2(4500, -2600),
-    new THREE.Vector2(6000, -3000), new THREE.Vector2(CX, CZ), new THREE.Vector2(CX + 800, CZ - 300)
-  ]);
-  // 2026-11-05: リングロード（市街外周）+ 放射 2 本（西河畔・南郊外）で道路網を連続化
+  patchAtlasUV(tMat);
   {
-    const ring: THREE.Vector2[] = [];
-    for (let i = 0; i <= 34; i++) {
-      const a = (i / 34) * Math.PI * 2;
-      const rr = 2450 + Math.sin(a * 5 + 1.3) * 190;
-      ring.push(new THREE.Vector2(CX + Math.cos(a) * rr * 1.24, CZ + Math.sin(a) * rr));
-    }
-    roads.push(ring);
-  }
-  roads.push([new THREE.Vector2(CX - 2260, CZ + 420), new THREE.Vector2(1200, -1000), new THREE.Vector2(-1400, -2500)]);
-  roads.push([new THREE.Vector2(CX + 1250, CZ + 1560), new THREE.Vector2(4100, 3600), new THREE.Vector2(2900, 6300)]);
-  // 2026-11-06 v12: 格子街路（街道=ブロック境界。建物スナップと同一系で整合）
-  const gridRoadStart = roads.length;
-  {
-    const half = 3650;
-    const inside = (px: number, pz: number) =>
-      Math.hypot(px - CX, (pz - CZ) / 0.8) > 640 && Math.hypot(px - CX, (pz - CZ) / 0.8) < half;
-    const n0 = Math.round((CX - half) / CELL), n1 = Math.round((CX + half) / CELL);
-    const m0 = Math.round((CZ - half * 0.8) / CELL), m1 = Math.round((CZ + half * 0.8) / CELL);
-    for (let n = n0; n <= n1; n++) {
-      const px = (n + 0.5) * CELL;
-      const poly: THREE.Vector2[] = [];
-      let run = 0;
-      for (let k = m0 - 2; k <= m1 + 2; k++) {
-        const pz = (k + 0.5) * CELL;
-        if (inside(px, pz)) { poly.push(new THREE.Vector2(px, pz)); run = 0; }
-        else if (++run > 2 && poly.length) { break; }
-      }
-      if (poly.length > 2) roads.push(poly);
-    }
-    for (let m = m0; m <= m1; m++) {
-      const pz = (m + 0.5) * CELL;
-      const poly: THREE.Vector2[] = [];
-      let run = 0;
-      for (let k = n0 - 2; k <= n1 + 2; k++) {
-        const px = (k + 0.5) * CELL;
-        if (inside(px, pz)) { poly.push(new THREE.Vector2(px, pz)); run = 0; }
-        else if (++run > 2 && poly.length) { break; }
-      }
-      if (poly.length > 2) roads.push(poly);
-    }
+    const n = L.towers.n;
+    const gT = geo.clone();
+    const faces = new Float32Array(n);
+    for (let i = 0; i < n; i++) faces[i] = faceOf(faceSeq++);
+    gT.setAttribute('aFace', new THREE.InstancedBufferAttribute(faces, 1));
+    const tMesh = new THREE.InstancedMesh(gT, tMat, n);
+    tMesh.name = 'towers';
+    (tMesh.instanceMatrix.array as Float32Array).set(L.towers.m);
+    tMesh.instanceMatrix.needsUpdate = true;
+    tMesh.instanceColor = new THREE.InstancedBufferAttribute(L.towers.c, 3);
+    tMesh.instanceColor.needsUpdate = true;
+    tMesh.castShadow = true;
+    tMesh.receiveShadow = false;
+    tMesh.computeBoundingSphere();
+    group.add(tMesh);
   }
 
-  const rPos: number[] = [];
-  const rIdx: number[] = [];
-  // x,z,進行角, 行商人列 OK（v12: 格子街路は建物行が既にあるので村を作らない）
-  const villagePts: Array<[number, number, number, boolean]> = [];
-  let vBase = 0;
-  for (let ri = 0; ri < roads.length; ri++) {
-    const poly = roads[ri];
-    // 120m 間隔で再サンプリング
-    const pts: THREE.Vector2[] = [];
-    for (let i = 0; i < poly.length - 1; i++) {
-      const n = Math.max(1, Math.round(poly[i].distanceTo(poly[i + 1]) / 120));
-      for (let k = 0; k < n; k++) pts.push(poly[i].clone().lerp(poly[i + 1], k / n));
-    }
-    pts.push(poly[poly.length - 1].clone());
-    for (let i = 0; i < pts.length; i++) {
-      const prev = pts[Math.max(0, i - 1)];
-      const next = pts[Math.min(pts.length - 1, i + 1)];
-      const d = new THREE.Vector2(next.x - prev.x, next.y - prev.y).normalize();
-      const nrm = new THREE.Vector2(-d.y, d.x);
-      const hw = 11;
-      if (i % 2 === 0) villagePts.push([pts[i].x, pts[i].y, Math.atan2(d.y, d.x), ri < gridRoadStart]);
-      // v12: 街路樹アンカー（約720m 間隔・両側 27m: 縁石 11m と建物前線 26m の間）
-      if (i % 6 === 2 && roadsidePts.length < 1500) {
-        for (const sd2 of [-1, 1] as const) {
-          roadsidePts.push({ x: pts[i].x + nrm.x * sd2 * 27, z: pts[i].y + nrm.y * sd2 * 27, s: 0.72 + rand() * 0.55 });
-        }
-      }
-      const y = Math.max(terrainHeight(pts[i].x, pts[i].y) + 0.35, -2.6);
-      rPos.push(pts[i].x + nrm.x * hw, y, pts[i].y + nrm.y * hw);
-      rPos.push(pts[i].x - nrm.x * hw, y, pts[i].y - nrm.y * hw);
-      if (i < pts.length - 1) {
-        const a = vBase + i * 2;
-        rIdx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
-      }
-    }
-    vBase += pts.length * 2;
-  }
-  const roadGeo = new THREE.BufferGeometry();
-  roadGeo.setAttribute('position', new THREE.Float32BufferAttribute(rPos, 3));
-  roadGeo.setIndex(rIdx);
-  roadGeo.computeVertexNormals();
-  const roadMesh = new THREE.Mesh(roadGeo, roadMat);
-  roadMesh.name = 'roads';
-  roadMesh.receiveShadow = true;
-  group.add(roadMesh);
-
-  // ===== 沿道集落（道路に沿って連続する低層家屋。中距離の構造手掛かり）=====
-  const VMAX = 620; // v12: リング沿い低層列ぶん扩容（それでも 1 draw call）
-  const vMesh = new THREE.InstancedMesh(geo, mat, VMAX);
-  vMesh.name = 'village';
-  vMesh.castShadow = true;
-  vMesh.receiveShadow = true;
+  // ---- 主要道路（地形追従リボン）----
   {
-    let vi = 0;
-    for (const [vx, vz, va, townOK] of villagePts) {
-      if (vi >= VMAX - 2) break;
-      const inner = Math.hypot(vx - CX, vz - CZ) < 4100; // v12: 幹線(リング・放射)沿いは低層行商人列で連続化
-      if (inner && !townOK) continue;
-      let nearAp = false;
-      for (const ap of AIRPORTS) if (Math.hypot(vx - ap.center.x, vz - ap.center.z) < 3700) nearAp = true;
-      if (nearAp) continue;
-      for (const side of [-1, 1] as const) {
-        if (vi >= VMAX) break;
-        if (!inner && rand() > 0.6) continue;
-        const offd = (inner ? 62 : 56) + rand() * (inner ? 42 : 120);
-        const nx = -Math.sin(va) * side, nz = Math.cos(va) * side;
-        const x = vx + nx * offd + (rand() - 0.5) * 44;
-        const z = vz + nz * offd + (rand() - 0.5) * 44;
-        const y = terrainHeight(x, z);
-        if (y < (inner ? 2.5 : 4)) continue;
-        const hh = inner ? 9 + rand() * 15 : 7 + rand() * 16, ww = 12 + rand() * 15, dd = 12 + rand() * 15;
-        dummy.position.set(x, y - 1, z);
-        dummy.rotation.set(0, va + (rand() - 0.5) * 0.3, 0);
-        dummy.scale.set(ww, hh, dd);
-        dummy.updateMatrix();
-        vMesh.setMatrixAt(vi, dummy.matrix);
-        const vt = 0.78 + rand() * 0.22;
-        color.setRGB(vt, vt * 0.97, vt * 0.93);
-        vMesh.setColorAt(vi, color);
-        buildingColliders.push({ x, z, r: 0.4 * Math.hypot(ww, dd) + 3, top: y + hh });
-        vi++;
-      }
-    }
-    vMesh.count = vi;
-    vMesh.instanceMatrix.needsUpdate = true;
-    if (vMesh.instanceColor) vMesh.instanceColor.needsUpdate = true;
+    const roadMat = new THREE.MeshStandardMaterial({ color: 0x2e3339, roughness: 0.95 });
+    const roadGeo = new THREE.BufferGeometry();
+    roadGeo.setAttribute('position', new THREE.BufferAttribute(L.roads.pos, 3));
+    roadGeo.setIndex(new THREE.BufferAttribute(L.roads.idx, 1));
+    roadGeo.computeVertexNormals();
+    const roadMesh = new THREE.Mesh(roadGeo, roadMat);
+    roadMesh.name = 'roads';
+    roadMesh.receiveShadow = true;
+    roadMesh.frustumCulled = true; // computeVertexNormals の後に球が作られる
+    group.add(roadMesh);
   }
-  group.add(vMesh);
 
-  // ===== 空港外周の郊外ベルト（滑走路 3.6km 外に低層の倉庫・工場・住宅）=====
-  const BMAX = 120;
-  const bMesh = new THREE.InstancedMesh(geo, mat, BMAX);
-  bMesh.name = 'airport-suburb';
-  bMesh.castShadow = false;
-  bMesh.receiveShadow = true;
-  {
-    let bi = 0;
-    for (const ap of AIRPORTS) {
-      const per = Math.floor(BMAX / AIRPORTS.length);
-      for (let i = 0; i < per && bi < BMAX; i++) {
-        const a = rand() * Math.PI * 2;
-        const rr = 3650 + rand() * 1500;
-        const x = ap.center.x + Math.cos(a) * rr * 1.12;
-        const z = ap.center.z + Math.sin(a) * rr;
-        const y = terrainHeight(x, z);
-        if (y < 4) continue;
-        const hh = 8 + rand() * 20, ww = 16 + rand() * 30, dd = 16 + rand() * 30;
-        dummy.position.set(x, y - 1, z);
-        dummy.rotation.set(0, Math.round(rand() * 4) * (Math.PI / 2), 0);
-        dummy.scale.set(ww, hh, dd);
-        dummy.updateMatrix();
-        bMesh.setMatrixAt(bi, dummy.matrix);
-        const bt = 0.7 + rand() * 0.3;
-        color.setRGB(bt * 0.96, bt * 0.97, bt);
-        bMesh.setColorAt(bi, color);
-        buildingColliders.push({ x, z, r: 0.4 * Math.hypot(ww, dd) + 3, top: y + hh });
-        bi++;
-      }
-    }
-    bMesh.count = bi;
-    bMesh.instanceMatrix.needsUpdate = true;
-    if (bMesh.instanceColor) bMesh.instanceColor.needsUpdate = true;
-  }
-  group.add(bMesh);
-
-  // ===== 超高層の障害灯（赤クンビーコン: 塔頂に 1 灯。夜間のみ発光→bloom） =====
-  const beacons: THREE.Vector3[] = [];
-  {
-    const mm = new THREE.Matrix4();
-    for (let i = 0; i < tMesh.count; i++) {
-      tMesh.getMatrixAt(i, mm);
-      const p = new THREE.Vector3();
-      const qq = new THREE.Quaternion();
-      const sc = new THREE.Vector3();
-      mm.decompose(p, qq, sc);
-      beacons.push(new THREE.Vector3(p.x, p.y + sc.y - 2, p.z));
-    }
-  }
+  // ---- 超高層の障害灯（赤ランビーコン: 塔頂に 1 灯。夜間のみ発光→bloom）----
   const beaconMat = new THREE.MeshBasicMaterial({ color: 0xff2a18, fog: false, transparent: true, opacity: 0 });
-  const beaconGeo = new THREE.SphereGeometry(1.6, 8, 6);
-  const beaconMesh = new THREE.InstancedMesh(beaconGeo, beaconMat, Math.max(1, beacons.length));
+  const beaconMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(1.6, 8, 6), beaconMat, Math.max(1, L.beacons.length / 3));
   beaconMesh.name = 'beacons';
   {
     const bm = new THREE.Matrix4();
-    beacons.forEach((b, i) => { bm.makeTranslation(b.x, b.y, b.z); beaconMesh.setMatrixAt(i, bm); });
+    for (let i = 0; i * 3 + 2 < L.beacons.length; i++) {
+      bm.makeTranslation(L.beacons[i * 3], L.beacons[i * 3 + 1], L.beacons[i * 3 + 2]);
+      beaconMesh.setMatrixAt(i, bm);
+    }
     beaconMesh.instanceMatrix.needsUpdate = true;
+    beaconMesh.computeBoundingSphere();
   }
   group.add(beaconMesh);
+
+  // ---- 距離 LOD（0.25s スロットルで game から呼ばれる）----
+  registerLod({
+    update: (cam: THREE.Vector3) => {
+      for (const e of lodEntries) {
+        const near = Math.hypot(e.b.cx - cam.x, e.b.cz - cam.z) < LOD_NEAR;
+        if (e.hi.visible !== near) {
+          e.hi.visible = near;
+          e.lo.visible = !near;
+        }
+      }
+    }
+  });
 
   // ===== 夜間系 API =====
   (group.userData as Record<string, unknown>).setNightLights = (f: number) => {

@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { createRenderer, resizeRenderer, applyPixelRatio } from './render/renderer.js';
 import { Game } from './game/game.js';
 import { loadTerrainBake } from './render/terrain.js';
+import { primeWorld } from './world/prime.js';
 import { terrainHeight } from './render/terrain.js';
 import { Menu } from './ui/menu.js';
 import { InstrumentPanel } from './ui/instruments.js';
@@ -60,6 +61,9 @@ const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerH
 // GPU 頂点変位が同一テーブルを参照するにはこれが順序条件。不在/失敗は resolve のまま
 // （loadTerrainBake 内部で catch）→ 従来手続き生成のみでゲームは成立する。
 await loadTerrainBake();
+// v16: 配置（city/nature レイアウト）と手続きテクスチャを Web Worker で先行生成。
+// 失敗・未対応環境は prime 内で同期フォールバック（同一コードなので出力は同一）。
+await primeWorld();
 const game = new Game(renderer, scene, camera);
 const explosion = new ExplosionFX(scene);
 explosion.camera = camera;
