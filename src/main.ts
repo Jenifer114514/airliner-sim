@@ -686,10 +686,12 @@ function frame(now: number): void {
             }
           }
         }
-        // 高速ド直撃（物理の大接地関値未満でも降下率×対地速度で吹っ飛ぶ）
-        if (wasAirborne) {
+        // 高速ド直撃（物理の大接地関値未満でも降下率×対地速度で吹っ飛ぶ）。
+        // v16.1: 接地直下でのみ判定 — 以前は高度条件がなく、巡航中に降下率 -5.5m/s 超えで
+        // 空中爆発する誤発火があった（着地フレームは onGround 遷移前の wasAirborne で拾える）
+        if (wasAirborne && (t.onGround || t.agl < 6)) {
           const slam = t.vspeed < -5.5 && t.groundSpeed > 28;
-          const gearUpSlam = !info.gearDown && t.groundSpeed > 46;
+          const gearUpSlam = !info.gearDown && t.groundSpeed > 46 && t.agl < 4;
           if (slam || gearUpSlam) game.forceCrash();
         }
       }

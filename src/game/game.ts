@@ -444,6 +444,8 @@ export class Game {
   }
   restartDemo(): void {
     if (!this.player) return;
+    // v16.1: 衝突で forceCrash が隠した機体を必ず復元（再スタートで「機体が見えない」対策）
+    this.player.group.visible = true;
     if (this.flightMode === 'free' && this.physics) {
       const pose = this.runwayStartPose();
       this.physics.reset(pose.pos, pose.headingRad);
