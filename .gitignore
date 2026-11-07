@@ -12,3 +12,6 @@ npm-debug.log*
 deploy/.surge-*.json
 scripts/.surge-*.py
 scripts/.bake-tmp/
+
+# 39MB バイナリ（README の再取得手順で復元）
+tools/

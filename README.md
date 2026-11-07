@@ -21,7 +21,7 @@ npm run serve            # http://localhost:8080/ で配信
 
 | 方法 | 手順 |
 |---|---|
-| **公開トンネル（手軽）** | `node scripts/serve.mjs 8080` + `/home/user/skyfighter/tools/cloudflared tunnel --protocol http2 --url http://127.0.0.1:8080 --metrics 127.0.0.1:21024` → 表示された `https://xxx.trycloudflare.com` を開く。`--metrics` は必須（既定の 20241 は Arena プレビューと衝突する）。現行 URL は **`TUNNEL_URL.txt`** に常に同期 |
+| **公開トンネル（手軽）** | `node scripts/serve.mjs 8080` + `tools/cloudflared tunnel --protocol http2 --url http://127.0.0.1:8080 --metrics 127.0.0.1:21024` → 表示された `https://xxx.trycloudflare.com` を開く。`--metrics` は必須（既定の 20241 は Arena プレビューと衝突する）。現行 URL は **`TUNNEL_URL.txt`** に常に同期。バイナリ失ったら `curl -L -o tools/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \u0026\u0026 chmod +x tools/cloudflared`（git 管理外） |
 | **自動回復** | `scripts/tunnel-watchdog.sh` を起動しておくと、30 秒ごとにトンネル URL へ疎通検査し、3 回連続失敗（error 1033/530 相当）で cloudflared を kill → スーパーバイザが約 10 秒で新 URL を再発行、`TUNNEL_URL.txt` も自動更新。ログは `/tmp/cf.log`、現在 URL は `/tmp/tunnel-url.txt` |
 | **同一 Wi-Fi** | `npm run dev -- --host` → iPhone で `http://<PCのLAN IP>:5173/` |
 | **静的ホスティング** | `web/` を Netlify Drop / GitHub Pages 等へ（HTTPS 推奨） |
