@@ -184,7 +184,7 @@ node scripts/shots.mjs          # スクリーンショット検証
 
 **ルートA: フルリポジトリ + Actions（推奨・更新自動化）**
 1. github.com/new で `airliner-sim`（Public）作成
-2. `deploy/airliner-sim-repo.zip` を**解凍した中身ごと**「uploading an existing file」でドラッグ（zip そのままは解凍されない。1.6MB・91ファイル、node_modules/web 除く全ソース）。または `git init` 済みなので `git remote add origin … && git push -u origin main`
+2. ソース配布 zip は**都度生成**（恒常同梱をやめ、workspace 整理で `deploy/airliner-sim-repo.zip` は削除）: `git archive -o repo.zip HEAD` で node_modules/ビルド物を除いた全ソースが出せる。GitHub 運用なら Code→Download ZIP か `git remote add origin … && git push -u origin main`
 3. Settings → Pages → **Source: GitHub Actions**（ブランチ選択式のままにしない）
 4. Actions タブの "Deploy to GitHub Pages" 成功後、上記URLで公開済み（ビルド約1〜2分）
 
