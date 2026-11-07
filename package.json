@@ -10,8 +10,7 @@
     "build": "vite build",
     "serve": "node scripts/serve.mjs",
     "shots": "node scripts/shots.mjs",
-    "test:browser": "node scripts/browser-smoke.mjs",
-    "single": "npm run build && node scripts/inline-single.mjs"
+    "test:browser": "node scripts/browser-smoke.mjs"
   },
   "dependencies": {
     "three": "0.170.0"

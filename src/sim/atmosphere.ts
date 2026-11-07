@@ -8,7 +8,6 @@
  */
 export const RHO0 = 1.225;
 export const G = 9.80665;
-export const SPEED_OF_SOUND = 340.3; // m/s（海面）
 
 export function airDensity(alt: number): number {
   return RHO0 * Math.exp(-Math.max(alt, -500) / 8500);

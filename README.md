@@ -173,7 +173,7 @@ node scripts/shots.mjs          # スクリーンショット検証
 |---|---|
 | 前提確認 | 実行時の外部取得なし（fetch/XHR/SW/localStorage ゼロ、音声も手続き生成）→ サーバー不要で成立。`vite.config` は `base:'./'` 済み（サブパスの GitHub Pages 対応） |
 | **デプロイ用 zip** | `web/` 直下（index.html+assets）を **Netlify Drop / Cloudflare Pages / GitHub Pages** に置くだけ（Drop は zip ごとドラッグ可）。同梱成果物: `deploy/airliner-sim-static.zip`（約 8.6MB — 侵食ベイク 8.4MB 同梱。`cd web && zip -r ../deploy/airliner-sim-static.zip .` で再生成） |
-| ~~単一HTML（file:// 可）~~ | **2026-11-07b で廃止**: 侵食ベイク（`terrain-bake.bin`）の外部テクスタ化と単一 HTML が両立しないため、`web-single/` は削除済み（利用者は静的ホスト URL 運用に統一）。`scripts/inline-single.mjs` は参考のため残置（ベイクなし版しか作れない） |
+| ~~単一HTML（file:// 可）~~ | **2026-11-07b で廃止**: 侵食ベイク（`terrain-bake.bin`）の外部テクスタ化と単一 HTML が両立しないため、`web-single/` は削除済み（利用者は静的ホスト URL 運用に統一）。`scripts/inline-single.mjs` と npm スクリプト `single` は 2026-11-08 に削除（過去実装は git 履歴） |
 | 検証 | file:// 実測 PASS（headless Chromium: menu rendered / state=flying / JS errors 0）。`</script>` 早期閉じエスケープと `String.replace` の `$&` 展開バグ検知ガードつき（実際に関数置換で修正） |
 | 運用変更 | 静的ホストに常設後は serve.mjs/tunnel/watchdog は退役可。現在の暫定URL: `TUNNEL_URL.txt` 参照（trycloudflare は ephemeral） |
 | 恒久ホスト自動発行の試み | surge.sh は CLI デプロイ成功後も**新規アカウントのメール認証ゲート（403）**で公開不可。使い捨てメールドメイン（mail.tm 等）には認証メールが配信されず（8分×2アカウントで不達確認）。`netlify-cli` の `--allow-anonymous` も廃止済み（v17 で unknown option）。Netlify Drop / GitHub Pages はブラウザ側のログイン操作が必要なため手動運用（zip 投入で 1 分） |
@@ -222,7 +222,7 @@ node scripts/shots.mjs          # スクリーンショット検証
 - **エンコード**: uint32 = low16 に δ 高度（(m×256)+32768、±128m 範囲・1/256m 精度）+ high16 に wear。別枠 RGBA8 = 法線ティルト.xy / wear / 堆積量。**CPU `terrainHeight` と GLSL `terrH` は同一の手動バイリニア復号式**（v10-C の教訓遵守 — 機体接地時の高さゆらぎが出ない）
 - **シェーダ**: 頂点 = texelFetch×4（バイリニア）で実地形に掘削/盛土。断片 = uShade 1 fetch で (a) 実光の法線ティルト（6.5〜14km でフェード）(b) 谷底の堆積色減光 (c) 浸食崖の岩盤露出 (d) 扇状地の砂礫色。ディテール法線と同一逆変換に統合し追加変換ゼロ
 - **不変保証**: 空港/滑走路は flatMask<0.02 の域で δ=0 を**blur 後にも再マスク**（検証 `airportLeak=0`）。海岸線とタイル端は smoothstep 窓。河川・水面・CFG は既有一致式のまま
-- **単一 HTML 廃止（承認済）**: テクスチャ外部化のため `web-single/` を削除し、**配信は `web/` フォルダ（zip 同梱）のみ**。`node scripts/inline-single.mjs` は残るが再生成不要。起動時 `main.ts` が `await loadTerrainBake()`（404/失敗は catch → 手生成地形のみで無害に劣化）。vite/ts target を es2022 に（top-level await 許可）
+- **単一 HTML 廃止（承認済）**: テクスチャ外部化のため `web-single/` を削除し、**配信は `web/` フォルダ（zip 同梱）のみ**。inline-single スクリプトも削除済（2026-11-08）。起動時 `main.ts` が `await loadTerrainBake()`（404/失敗は catch → 手生成地形のみで無害に劣化）。vite/ts target を es2022 に（top-level await 許可）
 - **検証**: tsc✓ build✓ / physics **10/10**・autopilot **30/30**・browser-smoke **30/30**（いずれもベイク込みビルド。JS エラー 0 = usampler2D/GLSL3 経路が WebGL2 で健全）/ 最大掘削点 (-15994,3454) のブラウザ `terrainHeight`=1468.43 は CPU 期待値 1521.06−52.63 と一致 / before-after 同一相対機位 `screenshots/v13/{pre,post}-valley2-near.png`（なめらかなコブ → 掘削溝の陰影+堆積扇+表面のざらつき、targetH −32m）
 - **再生成手順**: `relief`/ノイズ系を変えたら `node scripts/bake-erosion.mjs && npm run build`（bake 内に検証アサーション。失敗時 exit 1）
 

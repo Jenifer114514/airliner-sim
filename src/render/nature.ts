@@ -3,7 +3,7 @@
  * 空港の西〜北の丘陵地帯に樹林帯を作る。
  */
 import * as THREE from 'three';
-import { makeRandom, clamp } from '../core/math.js';
+import { makeRandom } from '../core/math.js';
 import { terrainHeight } from './terrain.js';
 import { AIRPORTS } from '../config/airports.js';
 import { roadsidePts } from './city.js';
@@ -131,8 +131,4 @@ function mergeGeoms(a: THREE.BufferGeometry, b: THREE.BufferGeometry): THREE.Buf
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(norm, 3));
   return geo;
-}
-
-export function clampTreeScale(s: number): number {
-  return clamp(s, 0.5, 2.5);
 }

@@ -24,7 +24,7 @@ import { AIRPORTS } from '../config/airports.js';
 import { makeGroundDetailTexture } from './textures.js';
 
 // ===== 河川ポリライン（ワールド座標 [m]）=====
-export const RIVERS: { pts: [number, number][]; width: number }[] = [
+const RIVERS: { pts: [number, number][]; width: number }[] = [
   { pts: [[-14000, -7000], [-9000, -5600], [-4000, -4800], [1000, -4300], [6000, -2000], [10000, 2000], [13000, 7000]], width: 70 },
   { pts: [[-16000, 3000], [-11000, 3600], [-6500, 4200], [-2000, 5200], [2500, 7000], [7000, 9500]], width: 54 }
 ];
@@ -103,14 +103,11 @@ export { relief as reliefRaw, flatMask as flatMaskRaw, seaMask as seaMaskRaw };
 // CPU（配置・物理）と GLSL（頂点変位）が**同一の手動バイリニア式**で参照する
 // （v10-C の教訓: CPU=GPU 一致は式レベルで担保しないと機体振動になる）。
 // .bin 不在時は 1×1 無効テーブルで従来手順生成のみ（fetch 失敗＝無害な劣化）。
-export interface TerrainBakeMeta { N: number; cell: number; min: number; }
+interface TerrainBakeMeta { N: number; cell: number; min: number; }
 let gBake: { meta: TerrainBakeMeta; ero: Uint32Array; shade: Uint8Array } | null = null;
 let gBakeEroTex: THREE.DataTexture | null = null;
 let gBakeShadeTex: THREE.DataTexture | null = null;
 
-/** ベイク済みか（マテリアルの programCacheKey / GLSL 分岐用） */
-export const terrainBakeReady = (): boolean => gBake !== null;
-export const terrainBakeMeta = (): TerrainBakeMeta | null => (gBake ? gBake.meta : null);
 
 function decodeBake(buf: ArrayBuffer): void {
   const dv = new DataView(buf);
@@ -170,23 +167,6 @@ export function terrainBakeDelta(x: number, z: number): number {
        + dec(i0, j0 + 1) * (1 - fx) * fy + dec(i0 + 1, j0 + 1) * fx * fy;
 }
 
-/** 法線ティルト（CPU 版・中央差分。スキャン/検査用 — レンダリング側は GPU uShade）。 */
-export function terrainBakeTilt(x: number, z: number): { nx: number; nz: number; wear: number } {
-  if (!gBake) return { nx: 0, nz: 0, wear: 0 };
-  const e = 12;
-  const k = (terrainBakeDelta(x + e, z) - terrainBakeDelta(x - e, z)) / (2 * e);
-  const m = (terrainBakeDelta(x, z + e) - terrainBakeDelta(x, z - e)) / (2 * e);
-  return { nx: -k, nz: -m, wear: bakeWear(x, z) };
-}
-
-function bakeWear(x: number, z: number): number {
-  if (!gBake) return 0;
-  const m = gBake.meta;
-  const i = Math.round((x - m.min) / m.cell - 0.5), j = Math.round((z - m.min) / m.cell - 0.5);
-  if (i < 0 || j < 0 || i >= m.N || j >= m.N) return 0;
-  return gBake.shade[(j * m.N + i) * 4 + 2] / 255;
-}
-
 /** ユーニフォーム詰替用（未ロード時は 1×1 無効テーブル → delta 0・ティルト 0） */
 const dummyEro = (): THREE.DataTexture =>
   (gBakeEroTex ?? (() => {
@@ -206,7 +186,7 @@ const dummyShade = (): THREE.DataTexture =>
   })());
 
 /** 河川彫り込みなしの地形高（河川水面リボンの水位計算用） */
-export function terrainBase(x: number, z: number): number {
+function terrainBase(x: number, z: number): number {
   const f = flatMask(x, z);
   return (relief(x, z) + terrainBakeDelta(x, z)) * f - seaMask(x, z) * 520 * f;
 }

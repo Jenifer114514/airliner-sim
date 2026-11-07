@@ -4,7 +4,7 @@
  * iPhone 配慮: Sprite のみ・シェーダなしで軽量。
  */
 import * as THREE from 'three';
-import { makeRandom, clamp } from '../core/math.js';
+import { makeRandom } from '../core/math.js';
 import { terrainHeight } from './terrain.js';
 import { makeCloudTexture } from './textures.js';
 
@@ -142,8 +142,4 @@ export function buildClouds(scene: THREE.Scene, count: number): CloudObjects {
       shadowMat.opacity = 0.16 * (1 + k);
     }
   };
-}
-
-export function clampCloudOpacity(v: number): number {
-  return clamp(v, 0.15, 0.95);
 }
