@@ -199,7 +199,8 @@ function setCameraName(name: string): void {
 }
 
 bindButton('btn-camera', () => setCameraName(game.cycleCamera(1)));
-bindButton('btn-view-prev', () => setCameraName(game.cycleCamera(-1)));
+// v19: ◀VIEW / AP / 全画面の HUD ボタンは廃止（カメラ切替は [カメラ切替] のみ、
+// AP は左下 [AP⚙] パネルのマスター行、全画面はメニューの表示チップで制御）
 bindButton('btn-replay', () => {
   game.restartDemo();
   callouts.reset();
@@ -211,14 +212,12 @@ bindButton('btn-pause', requestPause);
 // 4.5 オートパイロット UI — [AP]=マスタトグル / [AP⚙]=セレクタパネル
 //   接続時に現在値キャプチャ（SPD/HDG/ALT）。横=HDG|NAV(LOC) 鉛直=ALT|V/S|APPR(GS)
 // ============================================================
-const apBtn = document.getElementById('btn-ap') as HTMLElement;
 const apSetBtn = document.getElementById('btn-ap-set') as HTMLElement;
 const apPanel = document.getElementById('ap-panel') as HTMLElement;
 const apStrip = document.getElementById('ap-strip') as HTMLElement;
 let apLastSig = '';
 // v18: AP 系 DOM は「値が変わった帧だけ」書き込む（従来は毎帧 innerHTML 再パース
 // と textContent 代入で、タップ中のボタン見た目を不安定にしていた）
-let apUiEngaged = false;
 let apUiStripDisp = '';
 let apStripLastTxt = '';
 let apUiChips = '';
@@ -304,9 +303,13 @@ function renderApPanel(): void {
     apprB.classList.toggle('on', st.ver === 'APPR');
   }
   apSetBtn.classList.toggle('on', game.ap.engaged);
-  void apBtn;
+  const master = document.getElementById('ap-master');
+  if (master) {
+    master.textContent = game.ap.engaged ? 'AP OFF' : 'AP ON';
+    master.classList.toggle('on', game.ap.engaged);
+  }
 }
-bindButton('btn-ap', () => {
+bindButton('ap-master', () => {
   if (game.flightMode !== 'free') {
     sopBanner.show({ text: 'AP は自由飛行モードでのみ使用可能', speech: null, kind: 'warn' });
     return;
@@ -331,7 +334,6 @@ bindButton('ap-lat', () => { game.ap.setLat(game.ap.latMode === 'HDG' ? 'NAV' : 
 bindButton('ap-vrt-alt', () => { game.ap.holdAlt(); renderApPanel(); });
 bindButton('ap-vrt-appr', () => { game.ap.alignApproach(); renderApPanel(); });
 bindButton('ap-align', () => { game.ap.alignApproach(); renderApPanel(); });
-bindButton('ap-off', () => { if (game.ap.engaged) game.toggleAp(); renderApPanel(); });
 // 離陸前も使われるボタン: 機体状態に依らず常にタップ可能（接続は現在値キャプチャ）
 void apPanel;
 
@@ -393,9 +395,7 @@ const isFs = (): boolean => document.fullscreenElement != null || fsDoc.webkitFu
 function fsStored(): boolean { try { return localStorage.getItem(FS_KEY) === '1'; } catch { return false; } }
 function fsRemember(on: boolean): void { try { localStorage.setItem(FS_KEY, on ? '1' : '0'); } catch { /* シークレットモード等は永続化しない */ } }
 function fsSyncLabel(): void {
-  const el = document.getElementById('btn-fs') as HTMLElement;
-  el.innerHTML = isFs() ? '解除' : '全画面';
-  el.classList.toggle('on', isFs());
+  // v19: 飛行 HUD の [全画面] ボタン廃止 — ラベル同期は不要（メニューチップのみ）
   menu.setDisplay(isFs()); // ホーム画面のチップを実状態へ逆同期
   fsRemember(isFs());
   onResize(); // 全画面前後で safe-area/viewport が変わるため明示再同期
@@ -418,10 +418,6 @@ function fsExit(): void {
   if (document.exitFullscreen) void document.exitFullscreen().then(() => fsSyncLabel()).catch(() => undefined);
   else if (fsDoc.webkitExitFullscreen) { fsDoc.webkitExitFullscreen(); setTimeout(fsSyncLabel, 0); }
 }
-bindButton('btn-fs', () => {
-  if (isFs()) { fsRemember(false); fsExit(); }
-  else { fsRemember(true); fsRequest(); }
-});
 function fsUnsupported(): void {
   sopBanner.show({
     text: 'このブラウザは全画面 API 非対応です。iPhone は共有→「ホーム画面に追加」で全画面起動',
@@ -736,11 +732,6 @@ function frame(now: number): void {
       // ---- AP 表示（ストリップ / パネル / イベント音声） ----
       {
         const aps = game.getApStatus();
-        if (aps.engaged !== apUiEngaged) {
-          apUiEngaged = aps.engaged;
-          apBtn.classList.toggle('on', aps.engaged);
-          apBtn.innerHTML = aps.engaged ? 'AP<br>ON' : 'AP<br>OFF';
-        }
         if (aps.engaged) {
           if (apUiStripDisp !== 'flex') {
             apUiStripDisp = 'flex';

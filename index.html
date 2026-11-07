@@ -131,11 +131,6 @@
       box-sizing: border-box;
       padding: 3px 4px;
     }
-    #btn-fs.on {
-      border-color: rgba(120, 220, 170, 0.95);
-      background: rgba(16, 58, 42, 0.72);
-      color: #b9f5d4;
-    }
     #cam-name {
       grid-column: 1 / -1;
       background: rgba(10, 18, 28, 0.45);
@@ -480,14 +475,11 @@
         <div class="tbtn" id="btn-pause">⏸</div>
         <div class="tbtn" id="btn-sound">音<br>ON</div>
         <div class="tbtn" id="btn-inst">計器<br>ON</div>
-        <div class="tbtn" id="btn-fs">全画面</div>
       </div>
 
       <!-- 左下: flex 行（絶対配置をやめ、構造的に重なりを排除） -->
       <div id="bottom-left">
-        <div class="tbtn" id="btn-view-prev">◀<br>VIEW</div>
         <div class="tbtn" id="btn-replay">再<br>スタート</div>
-        <div class="tbtn" id="btn-ap">AP<br>OFF</div>
         <div class="tbtn" id="btn-ap-set">AP<br>⚙</div>
       </div>
 
@@ -522,7 +514,7 @@
         </div>
         <div class="ap-row">
           <div class="ap-b wide" id="ap-align">LOC+GS アライン</div>
-          <div class="ap-b wide" id="ap-off">AP OFF</div>
+          <div class="ap-b wide" id="ap-master">AP ON</div>
         </div>
       </div>
     </div>

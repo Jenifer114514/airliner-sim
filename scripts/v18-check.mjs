@@ -19,18 +19,18 @@ const ok = (n, c, i) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${n}${i ? '  ' + 
 
 // ① AP DOM 書き込みカウント（idle 2 秒: AP OFF 継続 → innerHTML 0、textContent 0）
 const dom = await page.evaluate(async () => {
-  const btn = document.getElementById('btn-ap');
+  const btn = document.getElementById('ap-master'); // v19: [AP] ボタン廃止 → パネルマスタ
   const strip = document.getElementById('ap-strip-txt');
   let iw = 0, tw = 0;
   const hooks = [];
   if (btn) {
-    const d = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'innerHTML');
-    Object.defineProperty(btn, 'innerHTML', {
+    const d = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent');
+    Object.defineProperty(btn, 'textContent', {
       get() { return d.get.call(this); },
       set(v) { iw++; d.set.call(this, v); },
       configurable: true
     });
-    hooks.push(() => delete btn.innerHTML);
+    hooks.push(() => delete btn.textContent);
   }
   if (strip) {
     const d = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent');
@@ -45,23 +45,22 @@ const dom = await page.evaluate(async () => {
   await new Promise((r) => setTimeout(r, 2000));
   return { iw, tw, hasBtn: !!btn, hasStrip: !!strip, frames0 };
 });
-ok('①apBtn innerHTML は idle 中 0 回', dom.iw === 0, `writes=${dom.iw} hook=${dom.hasBtn}`);
+ok('①AP マスタ書換は idle 中 0 回', dom.iw === 0, `writes=${dom.iw} hook=${dom.hasBtn}`);
 ok('①apStrip textContent idle 0 回', dom.tw === 0, `writes=${dom.tw} hook=${dom.hasStrip}`);
 
 // ② AP を ON にすると 1 回だけ書き込み、以降アイドルでは増えない
 const ap = await page.evaluate(async () => {
   const g = window.__airliner.game;
-  const btn = document.getElementById('btn-ap');
+  const btn = document.getElementById('ap-master');
   const strip = document.getElementById('ap-strip-txt');
   let iw = 0, tw = 0;
-  const d1 = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'innerHTML');
-  Object.defineProperty(btn, 'innerHTML', { get() { return d1.get.call(this); }, set(v) { iw++; d1.set.call(this, v); }, configurable: true });
+  const d1 = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent');
+  Object.defineProperty(btn, 'textContent', { get() { return d1.get.call(this); }, set(v) { iw++; d1.set.call(this, v); }, configurable: true });
   const d2 = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent');
   Object.defineProperty(strip, 'textContent', { get() { return d2.get.call(this); }, set(v) { tw++; d2.set.call(this, v); }, configurable: true });
   g.toggleAp?.();
   if (!g.getApStatus().engaged) {
-    // ゲーム側のトグル名が違う可能性 → UI ボタン押下で試行
-    btn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    btn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); // パネルマスタで試行
   }
   await new Promise((r) => setTimeout(r, 900));
   const engaged = g.getApStatus().engaged;

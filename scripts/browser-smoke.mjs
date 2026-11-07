@@ -183,12 +183,19 @@ const stickSign = await page.evaluate(async () => {
   ev('pointerdown', cx - 220, cy, 25);
   await settle();
   const tapOff = Math.abs(C().pitch) + Math.abs(C().roll);
-  // そこから右へ 30px ドラッグ → 右ロール
+  // そこから右へ 30px ドラッグ → 右ロール（rAF 餓死耐性つき待機 — 2026-11-08:
+  // settle() 固定待ちだと headless のバースト frames で誤 FAIL した）
   ev('pointermove', cx - 190, cy, 25);
-  await settle();
+  for (let i = 0; i < 40; i++) {
+    await Promise.race([new Promise((res) => requestAnimationFrame(res)), new Promise((res) => setTimeout(res, 2500))]);
+    if (Math.abs(C().roll) >= 0.45) break;
+  }
   const offRoll = C().roll;
   ev('pointerup', cx - 190, cy, 25);
-  await settle();
+  for (let i = 0; i < 80; i++) {
+    await Promise.race([new Promise((res) => requestAnimationFrame(res)), new Promise((res) => setTimeout(res, 2500))]);
+    if (Math.abs(C().pitch) + Math.abs(C().roll) < 0.01) break;
+  }
   const released = Math.abs(C().pitch) + Math.abs(C().roll);
   return { up, right, dn, dead, tapOff, offRoll, released };
 });
@@ -263,8 +270,8 @@ const apUi = await page.evaluate(async () => {
   const raf = async (n) => { for (let i = 0; i < n; i++) await Promise.race([new Promise((res) => requestAnimationFrame(res)), new Promise((res) => setTimeout(res, 1500))]); };
   const tap = (id) => document.getElementById(id).dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 90 + Math.random() } ));
   // 2026-11-06: AP 状態正規化（先行テストで自動接続が発火していた場合、常に切断から開始）
-  for (let i = 0; i < 4 && G().ap.engaged; i++) { tap('btn-ap'); await raf(1); }
-  tap('btn-ap');
+  for (let i = 0; i < 4 && G().ap.engaged; i++) { tap('ap-master'); await raf(1); }
+  tap('ap-master'); // v19: [AP] ボタン廃止 → AP⚙ パネルのマスタ行がトグル
   // 2026-11-06: 同期読取。SwiftShader では接続後 1 フレーム(≒250ms)で物理発散→自動解除されうるため、
   // raf 待機「後」の読取は接続事実を取りこぼす（トグルは UI ハンドラ内で同期適用される）。
   let engaged = G().ap.engaged;
@@ -286,15 +293,16 @@ const apUi = await page.evaluate(async () => {
   for (let i = 0; i < 3; i++) tap('ap-alt-up');
   await raf(2);
   const altAfter = G().ap.altTarget;
-  const btnText = document.getElementById('btn-ap').textContent || '';
-  tap('btn-ap');
+  const lblOn = document.getElementById('ap-master').textContent || ''; // 接続中 → 'AP OFF'
+  tap('ap-master');
   await raf(2);
   let disengaged = !G().ap.engaged;
   for (let i = 0; i < 24 && !disengaged; i++) { await new Promise((res) => setTimeout(res, 250)); disengaged = !G().ap.engaged; }
   tap('btn-ap-set');
-  return { engaged, stripVisible, stripHasAP: /AP/.test(stripText), spdKept: spdKt > 60, panelOpen, altGain: altAfter - altBefore, disengaged, btnOn: /ON/.test(btnText) };
+  const lblOff = document.getElementById('ap-master').textContent || ''; // 切断後 → 'AP ON'
+  return { engaged, stripVisible, stripHasAP: /AP/.test(stripText), spdKept: spdKt > 60, panelOpen, altGain: altAfter - altBefore, disengaged, btnOn: /OFF/.test(lblOn) && /ON/.test(lblOff) };
 });
-check('AP 接続/切断とステータス（[AP] トグル・strip 表示・ON ラベル）',
+check('AP 接続/切断とステータス（パネルマスタ・strip 表示・ラベル追従）',
   apUi.engaged && apUi.stripVisible && apUi.stripHasAP && apUi.disengaged && apUi.btnOn,
   JSON.stringify(apUi));
 check('AP パネル（ALT +100×3 = +300m・SPD 保持）',
