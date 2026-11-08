@@ -201,12 +201,8 @@ function setCameraName(name: string): void {
 
 bindButton('btn-camera', () => setCameraName(game.cycleCamera(1)));
 // v19: ◀VIEW / AP / 全画面の HUD ボタンは廃止（カメラ切替は [カメラ切替] のみ、
-// AP は左下 [AP⚙] パネルのマスター行、全画面はメニューの表示チップで制御）
-bindButton('btn-replay', () => {
-  game.restartDemo();
-  callouts.reset();
-  overlays.hidePause();
-});
+// AP は [AP⚙] パネルのマスター行、全画面はメニューの表示チップで制御）
+// v21: 「再スタート」ボタン廃止。AP⚙ は右クラスタ（3列×4行）の最右下セルに統合
 bindButton('btn-pause', requestPause);
 
 // ============================================================

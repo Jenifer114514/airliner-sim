@@ -7,7 +7,7 @@
  * 検証ルール:
  *  - 以下の視覚要素どうしは矩形が一切交差してはならない
  *      hud-left / hud-right / hud-phase / throttle-rail / btn-cluster /
- *      btn-replay / flight-note
+ *      btn-ap-set / flight-note
  *  - スティックのタッチ領域（stick-zone）は操作ボタン・スロットルに
  *    かかってはならない（誤タッチ防止）
  *  - 画面外へはみ出していないこと
@@ -30,11 +30,11 @@ const VIEWPORTS = [
 const NO_OVERLAP = [
   'inst-panel',
   'throttle-rail', 'btn-cluster',
-  'btn-replay', 'btn-ap-set', 'flight-note'
+  'flight-note' /* v21: btn-ap-set はクラスタ内セルなのでクラスタとの自己重複となるため対象外 */
 ];
 
 /** スティック領域に触れてはならない操作系要素（ID） */
-const STICK_EXCLUSIVE = ['throttle-rail', 'btn-cluster', 'btn-replay', 'btn-ap-set'];
+const STICK_EXCLUSIVE = ['throttle-rail', 'btn-cluster'];
 
 function intersects(a, b) {
   const x = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));

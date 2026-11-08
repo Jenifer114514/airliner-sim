@@ -96,7 +96,13 @@ const sC = await state();
 check('開始ジェスチャ: flying 到達・HUD[全画面]ボタン無し(v19)', sC.playing === 'flying' && sC.btnFs.label === '' && !sC.btnFs.visible, JSON.stringify({ fs: sC.fs, st: sC.playing, b: sC.btnFs }));
 if (sC.fs) {
   await page.evaluate(() => { if (document.exitFullscreen) document.exitFullscreen().catch(() => undefined); });
-  await page.waitForTimeout(800);
+  // 2026-11-08: headless では fullscreenchange が遅延するため固定 800ms は flaky →
+  // LS 追従（fsSyncLabel が書ける最大 5s）を条件poll。実機は即時発火。
+  for (let i = 0; i < 20; i++) {
+    const ls0 = await page.evaluate(() => { try { return localStorage.getItem('airliner.fs') === '0'; } catch { return false; } });
+    if (ls0) break;
+    await page.waitForTimeout(250);
+  }
   const sD = await state();
   check('API exit で LS=0・チップ逆同期', !sD.fs && sD.ls === '0' && !sD.fsChipSel.fsSel, JSON.stringify(sD));
 } else {
