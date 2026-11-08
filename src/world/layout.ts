@@ -9,7 +9,8 @@
  * Frustum Culling と Material LOD（近=フル/遠=簡易）に使う。
  */
 import { makeRandom, clamp, valueNoise } from '../core/math.js';
-import { terrainHeight } from './field.js';
+import { terrainHeight, terrainBakeFlow } from './field.js';
+import { smoothstep as sstep } from '../core/math.js';
 import { AIRPORTS } from '../config/airports.js';
 
 export const BUCKET = 2400;
@@ -316,10 +317,17 @@ export function computeNature(roadside: Float32Array, treeCount: number): Nature
     const x = Math.cos(angle) * radius - 2000;
     const z = Math.sin(angle) * radius - 2000;
     const y = terrainHeight(x, z);
-    if (y < 12 || y > 520) continue;
+    if (y < 12) continue;
+    // v23: 森林限界（GLSL 樹林帯の tl と同一式）— 頂上荒れノイズでゆらぐ林帯上限
+    const tl = 760 + 300 * valueNoise(x * 0.00022 + 31.7, z * 0.00022 + 12.1);
+    if (y > tl) continue;
     if (valueNoise(x * 0.00062 + 17.3, z * 0.00062 + 3.9) < 0.44) continue;
     const slope = Math.hypot(terrainHeight(x + 40, z) - y, terrainHeight(x, z + 40) - y) / 40;
-    if (slope > 0.85) continue;
+    if (slope > 0.72) continue;
+    // v23: 密度は湿度（流域蓄積＝谷筋・扇状地）と緩斜面に連動。ベイク無しは定数フォールバック
+    const flow = terrainBakeFlow(x, z);
+    const damp = (flow > 0 ? 0.30 + 0.85 * flow : 0.55) + 0.22 * (1 - sstep(0.25, 0.72, slope));
+    if (rand() > Math.min(1, damp)) continue;
     const s = 0.8 + rand() * 1.5 * (0.8 + valueNoise(x * 0.004 + 5.5, z * 0.004 + 8.1) * 0.5);
     const rot = rand() * Math.PI * 2;
     const sy = s * (0.85 + rand() * 0.55);

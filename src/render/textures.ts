@@ -528,3 +528,84 @@ export function makePanelMaps(): { normalMap: THREE.CanvasTexture; roughnessMap:
   if (!m) { m = createPanelMapsRaw(); gMapsCache.set('panelMaps', m); }
   return m;
 }
+// ═════ v23: 地表スプラットタイル（草/土/岩/砂 — 傾斜・高度で混合、回転はシェーダ側）═════
+// 平均輝度 ≈0.5 に正規化（col *= 0.5+1.16*spl で乗算ブレンドするため）。
+// 64² は近接地タイル周期 15m と組み合わせて繰り返しを目立たせない。
+export function makeGroundSplatTextures(): THREE.CanvasTexture[] {
+  const mk = (base: [number, number, number], grain: number, speck: [number, number, number],
+              kind: 'grass' | 'dirt' | 'rock' | 'sand'): THREE.CanvasTexture => {
+    const SZ = 64;
+    const cv = document.createElement('canvas');
+    cv.width = SZ; cv.height = SZ;
+    const ctx = cv.getContext('2d')!;
+    const img = ctx.createImageData(SZ, SZ);
+    const rnd = mulberry32(kind.charCodeAt(0) * 7919 + kind.length * 104729);
+    const lum = new Float32Array(SZ * SZ);
+    // 低周波場（12px）+ 高周波粒
+    const GW = 6;
+    const g = new Float32Array(GW * GW);
+    for (let i = 0; i < GW * GW; i++) g[i] = rnd();
+    const gAt = (x: number, y: number) => {
+      const fx = x / SZ * GW, fy = y / SZ * GW;
+      const x0 = Math.floor(fx) % GW, y0 = Math.floor(fy) % GW;
+      const sx = fx - Math.floor(fx), sy = fy - Math.floor(fy);
+      const a = g[y0 * GW + x0], b2 = g[y0 * GW + (x0 + 1) % GW];
+      const c2 = g[((y0 + 1) % GW) * GW + x0], d2 = g[((y0 + 1) % GW) * GW + (x0 + 1) % GW];
+      return (a + (b2 - a) * sx) + ((c2 + (d2 - c2) * sx) - (a + (b2 - a) * sx)) * sy;
+    };
+    for (let y = 0; y < SZ; y++) for (let x = 0; x < SZ; x++) {
+      let v = 0.5 + (gAt(x, y) - 0.5) * 0.30 + (rnd() - 0.5) * grain;
+      if (kind === 'grass') v += Math.sin(y * 1.9 + gAt(x, y) * 7) * 0.035;
+      if (kind === 'sand') v += Math.sin(y * 0.8 + Math.sin(x * 0.20) * 1.9) * 0.05;
+      if (kind === 'rock') {
+        const crack = Math.abs(gAt(x * 1.7 + 11, y * 0.35) - 0.5) < 0.028 ? -0.30 : 0;
+        v += crack;
+      }
+      if (kind === 'dirt') v += (rnd() < 0.045 ? -0.16 : 0);
+      lum[y * SZ + x] = v;
+    }
+    // 正規化して平均 0.5 付近へ
+    let mean = 0;
+    for (let i = 0; i < SZ * SZ; i++) mean += lum[i];
+    mean /= SZ * SZ;
+    for (let i = 0; i < SZ * SZ; i++) lum[i] = 0.5 + (lum[i] - mean) * 0.92;
+    for (let y = 0; y < SZ; y++) for (let x = 0; x < SZ; x++) {
+      const i = y * SZ + x;
+      // 色相は base、斑は speck 色で寄せる
+      let r = base[0], gg = base[1], b = base[2];
+      const mixv = kind === 'dirt' ? 0.45 : 0.35;
+      const sp = Math.max(0, (lum[i] - 0.5) * 2);
+      r = r + (speck[0] - r) * sp * mixv; gg = gg + (speck[1] - gg) * sp * mixv; b = b + (speck[2] - b) * sp * mixv;
+      const m = 0.55 + 0.9 * lum[i];
+      img.data[i * 4] = Math.max(0, Math.min(255, Math.round(r * m * 255)));
+      img.data[i * 4 + 1] = Math.max(0, Math.min(255, Math.round(gg * m * 255)));
+      img.data[i * 4 + 2] = Math.max(0, Math.min(255, Math.round(b * m * 255)));
+      img.data[i * 4 + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.colorSpace = THREE.NoColorSpace;
+    tex.generateMipmaps = true;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+    return tex;
+  };
+  return [
+    mk([0.335, 0.425, 0.215], 0.16, [0.52, 0.60, 0.30], 'grass'),
+    mk([0.375, 0.285, 0.185], 0.22, [0.30, 0.22, 0.145], 'dirt'),
+    mk([0.450, 0.440, 0.415], 0.20, [0.315, 0.300, 0.278], 'rock'),
+    mk([0.700, 0.640, 0.470], 0.13, [0.78, 0.72, 0.55], 'sand')
+  ];
+}
+
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}

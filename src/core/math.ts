@@ -50,6 +50,23 @@ export function valueNoise(x: number, z: number): number {
   return lerp(lerp(v00, v10, sx), lerp(v01, v11, sx), sz);
 }
 
+/**
+ * v23: 多重フラクタル fbm — 次のオクターブ振幅を「現在のノイズ値」に掛ける。
+ * 山頂は荒く谷は滑らかになる（Mullon 型の簡略形）。sum/norm ∈ [0,1] で従来 fbm と
+ * スケール互換。render/terrain.ts の GLSL fbm2M と**同一式**（reliefV ミラー契約）。
+ */
+export function fbmM(x: number, z: number, octaves: number): number {
+  let amp = 0.5, freq = 1, sum = 0, norm = 0;
+  for (let i = 0; i < octaves; i++) {
+    const n = valueNoise(x * freq, z * freq);
+    sum += amp * n;
+    norm += amp;
+    amp = Math.min(0.98, amp * (0.42 + 1.16 * n));
+    freq *= 2.03;
+  }
+  return sum / norm;
+}
+
 /** フラクションal ブラウン運動（0..1 に正規化） */
 export function fbm(x: number, z: number, octaves: number): number {
   let amp = 0.5, freq = 1, sum = 0, norm = 0;

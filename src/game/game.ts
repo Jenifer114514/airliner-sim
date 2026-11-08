@@ -12,7 +12,7 @@ import { getAircraftSpec, AIRCRAFT, type AirlinerSpec } from '../config/aircraft
 import { getAirportSpec, AIRPORTS } from '../config/airports.js';
 import { QualityManager } from '../core/quality.js';
 import { buildSky, type SkyObjects } from '../render/sky.js';
-import { buildTerrain, buildRivers, type TerrainObjects } from '../render/terrain.js';
+import { buildTerrain, type TerrainObjects } from '../render/terrain.js';
 import { buildWater, type WaterObjects } from '../render/water.js';
 import { buildClouds, type CloudObjects } from '../render/clouds.js';
 import { buildAirport } from '../render/airport.js';
@@ -158,7 +158,7 @@ export class Game {
     scene.fog = new THREE.Fog(0xc4daee, WORLD.FOG_NEAR, WORLD.FOG_FAR);
     const p = this.quality.preset;
     this.terrain = buildTerrain(scene, p.terrainNearSeg, p.terrainMid);
-    buildRivers(scene);
+    // v23: 河川は侵食ベイクの流域蓄積（light.a）で描画 — 手書き水面リボン buildRivers は廃止
     this.water = buildWater(scene);
     // 太陽影（地形・機体・建物に落ちる。範囲/解像度は品質プリセットで制限）
     this.renderer.shadowMap.enabled = p.shadows;
@@ -312,6 +312,13 @@ export class Game {
     for (const g of this.airportGroups) setNight(g);
     this.water.setPalette(t.skyTop, t.skyHorizon, t.sunColor, t.sunElevation);
     this.sky.regenerateEnv(this.scene); // 機体 IBL もその時間帯の空に追従
+    // v23: 地形大気・ベイク影の追従（昼=shDay / 夕=shDusk / 夜=浅く両方、天候で減衰）
+    this.terrain?.setAtmos({
+      sunDir: this.sky.sunDir,
+      warm: new THREE.Color(t.sunColor),
+      shadeMix: t.id === 'sunset' ? 1 : t.id === 'night' ? 0.55 : 0,
+      shadeAmt: (t.id === 'night' ? 0.5 : 1) * (0.35 + 0.65 * w.sunScale)
+    });
 
     // フォグ（天候で濃く）
     const fog = this.scene.fog as THREE.Fog;
