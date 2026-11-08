@@ -519,6 +519,10 @@ function clamp01(v: number): number {
 stickZone.addEventListener('pointerdown', (e) => {
   if (game.state !== 'flying') return;
   if (stickPointer !== null) return;
+  // v22: ベース（スティック図形）から遠い地点のドラッグは「画面スライド＝カメラ視点」に回す
+  const vr = stickVisual.getBoundingClientRect();
+  const dBase = Math.hypot(e.clientX - (vr.left + vr.width / 2), e.clientY - (vr.top + vr.height / 2));
+  if (dBase > vr.width * 0.78) { orbitStart(e); return; }
   e.preventDefault();
   stickPointer = e.pointerId;
   stickEngaged = true;
@@ -602,19 +606,29 @@ throttleRail.addEventListener('pointerup', releaseThrottle);
 throttleRail.addEventListener('pointercancel', releaseThrottle);
 
 // ============================================================
-// 6. 観察カメラのドラッグ（canvas 上の 1 本指）
+// 6. カメラの画面スライド（v22: 三人称=視点角 / orbit=観察。canvas 上の 1 本指）
 // ============================================================
 let orbitPointer: number | null = null;
 let lastOrbitX = 0;
 let lastOrbitY = 0;
-canvas.addEventListener('pointerdown', (e) => {
+function orbitStart(e: PointerEvent): void {
   if (game.state !== 'flying') return;
   if (orbitPointer !== null) return;
   orbitPointer = e.pointerId;
   lastOrbitX = e.clientX;
   lastOrbitY = e.clientY;
+}
+// 2026-11-08: canvas は pointer-events:none のため自前リスナーでは発火しない →
+// window で受けて「操作系（スティック/スロットル/ボタン/パネル/オーバーレイ）以外」を起動元にする
+const ORBIT_EXCLUDE = '#stick-zone, #throttle-rail, #btn-cluster, #ap-panel, .overlay, #menu-screen, #portrait-overlay, #webgl-error, .chip, .ap-b, .ap-chip, #sop-banner, button, input, select';
+window.addEventListener('pointerdown', (e) => {
+  const t = e.target as HTMLElement | null;
+  if (t && t.closest && t.closest(ORBIT_EXCLUDE)) return;
+  orbitStart(e);
 });
-canvas.addEventListener('pointermove', (e) => {
+// v22: window _LEVEL 聴取 — stick ゾーン内でベースから遠い地点を触った時も
+// （そちらはカメラ扱いになるため）同じ move/up ルートを使う
+window.addEventListener('pointermove', (e) => {
   if (e.pointerId !== orbitPointer) return;
   const dx = e.clientX - lastOrbitX;
   const dy = e.clientY - lastOrbitY;
@@ -625,8 +639,8 @@ canvas.addEventListener('pointermove', (e) => {
 const endOrbit = (e: PointerEvent) => {
   if (e.pointerId === orbitPointer) orbitPointer = null;
 };
-canvas.addEventListener('pointerup', endOrbit);
-canvas.addEventListener('pointercancel', endOrbit);
+window.addEventListener('pointerup', endOrbit);
+window.addEventListener('pointercancel', endOrbit);
 
 // ============================================================
 // 7. ライフサイクル

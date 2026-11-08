@@ -16,14 +16,17 @@ import { expSmooth, clamp } from '../core/math.js';
 export type CameraMode = 'cockpit' | 'chase' | 'wing' | 'orbit' | 'landing';
 
 export const CAMERA_NAMES: Record<CameraMode, string> = {
-  cockpit: 'COCKPIT',
-  chase: 'CHASE',
-  wing: 'WING',
-  orbit: 'ORBIT',
-  landing: 'LANDING'
+  cockpit: 'コックピット',
+  chase: '三人称',
+  wing: '翼上',
+  orbit: '周回',
+  landing: '進入'
 };
 
-const MODE_ORDER: CameraMode[] = ['cockpit', 'chase', 'wing', 'orbit', 'landing'];
+/* v22: 運用は 2 モードのみ — コックピット ⇔ 三人称（chase）。
+   三人称では画面スライドで視点オフセット（chaseYaw/Pitch）を動かせる（下方の追記）。
+   wing/orbit/landing はコード遺存だが切替サイクルからは除外。 */
+const MODE_ORDER: CameraMode[] = ['cockpit', 'chase'];
 
 export interface AircraftPose {
   position: THREE.Vector3;
@@ -77,6 +80,10 @@ export class CameraRig {
   orbitElevation = 0.35;
   private orbitAuto = true;
 
+  // v22: 三人称（chase）視点オフセット — 画面スライドで変更、切替・飛行継続でも維持
+  chaseYaw = 0;
+  chasePitch = 0.222; // 既定の視点高さ（旧 chase の -0.62 fwd +0.14 up と同角）
+
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
     this.camera.fov = CAMERA.FOV;
@@ -122,6 +129,12 @@ export class CameraRig {
     this.orbitAzimuth -= dx * 0.005;
     this.orbitElevation = clamp(this.orbitElevation + dy * 0.004, -0.25, 1.25);
     this.orbitAuto = false;
+  }
+
+  /** v22: 三人称カメラの画面スライド入力（ピクセル差分）— 機体を周る視点角 */
+  addChaseDelta(dx: number, dy: number): void {
+    this.chaseYaw -= dx * 0.005;
+    this.chasePitch = clamp(this.chasePitch + dy * 0.004, 0.03, 1.25);
   }
 
   update(dt: number, pose: AircraftPose): void {
@@ -188,25 +201,29 @@ export class CameraRig {
         return;
       }
       default: {
-        // ===== chase: 遅れゼロ追従（回転のみ平滑） =====
+        // ===== chase（三人称）: 遅れゼロ追従 + v22 スライド視点 =====
         this.tmpFwd.set(0, 0, 1).applyQuaternion(quaternion);
         const k = expSmooth(5.2, dt);
         this.smoothFwd.lerp(this.tmpFwd, k);
         if (this.smoothFwd.lengthSq() < 1e-8) this.smoothFwd.copy(this.tmpFwd);
         this.smoothFwd.normalize();
 
-        // ロールデカップル: worldUp ベースの right/up
-        this.tmpRight.crossVectors(this.smoothFwd, this.worldUp);
-        if (this.tmpRight.lengthSq() < 1e-6) this.tmpRight.set(1, 0, 0);
-        this.tmpRight.normalize();
-        this.tmpUp.crossVectors(this.tmpRight, this.smoothFwd).normalize();
+        // 機体→視点の単位方向: -fwd を yaw で worldUp 周りに回し、pitch で持ち上げる
+        this.tmpRight.copy(this.smoothFwd).multiplyScalar(-1);
+        this.tmpRight.applyAxisAngle(this.worldUp, this.chaseYaw);
+        this.tmpUp.crossVectors(this.tmpRight, this.worldUp);
+        if (this.tmpUp.lengthSq() < 1e-6) this.tmpUp.set(1, 0, 0);
+        this.tmpUp.normalize();
+        this.tmpRight.applyAxisAngle(this.tmpUp, this.chasePitch);
+        // 視点方向が揃った枠で up を再直交化（チンアップ時の roll 跳ね防止）
+        this.lookTarget.crossVectors(this.tmpUp, this.tmpRight).normalize();
 
-        this.desiredPos.copy(position)
-          .addScaledVector(this.smoothFwd, -size * 0.62)
-          .addScaledVector(this.tmpUp, size * 0.14);
+        this.desiredPos.copy(position).addScaledVector(this.tmpRight, size * 0.635);
         this.camera.position.copy(this.desiredPos);
-        this.camera.up.copy(this.tmpUp);
-        this.camera.lookAt(this.lookTarget.copy(position).addScaledVector(this.smoothFwd, size * 0.55));
+        this.camera.up.copy(this.lookTarget);
+        // 見中心: 視点方向が真後ろの時は機首前方を引き、周回位置では機体中心へ
+        this.tmpUp.copy(this.smoothFwd).multiplyScalar(size * 0.55 * Math.max(0, this.tmpRight.dot(this.tmpFwd.copy(this.smoothFwd).multiplyScalar(-1))));
+        this.camera.lookAt(this.lookTarget.copy(position).add(this.tmpUp));
         // 速度に応じて画角をわずかに広げる（速度感）
         const lowQ = pose.agl !== undefined ? clamp(1 - pose.agl / 300, 0, 1) : 0;
         const targetFov = CAMERA.FOV + clamp(velocity.length() * 0.03, 0, 8) + lowQ * 3.2;

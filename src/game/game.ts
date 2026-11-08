@@ -795,9 +795,10 @@ export class Game {
     this.player.setSpoilers(s.spoilers);
   }
 
-  /** 観察カメラのドラッグ */
+  /** 観察カメラのドラッグ（v22: 三人称 chase でも有効 — 画面スライドで視点角変更） */
   orbitDrag(dx: number, dy: number): void {
     if (this.rig.mode === 'orbit') this.rig.addOrbitDelta(dx, dy);
+    else if (this.rig.mode === 'chase') this.rig.addChaseDelta(dx, dy);
   }
 
   disposePlayer(): void {

@@ -226,7 +226,9 @@
       position: absolute;
       left: 0;
       top: calc(var(--sa-t) + var(--pad-top) + var(--panel-h) + 10px);
-      bottom: calc(var(--sa-b) + var(--bottom-row) + 10px);
+      /* v22: ベースを画面下端近くへ寄せた（旧: 左下帯 64px + 10px 上がり）。
+         ベース遠方の接触はカメラスライドへ回るため、拡張しても操作は競合しない */
+      bottom: calc(var(--sa-b) + 2px);
       width: min(56%, calc(100% - var(--right-band) - 20px));
       touch-action: none;
     }
@@ -237,9 +239,10 @@
       display: block;
       position: absolute;
       z-index: 1;
-      left: 50%;
+      /* v22: 左下寄へ（旧: 中央下 bottom 14px）— 親指位置をさらに縁へ */
+      left: 44%;
       transform: translateX(-50%);
-      bottom: 14px;
+      bottom: 6px;
       width: clamp(96px, 36vh, 128px);
       height: clamp(96px, 36vh, 128px);
       border-radius: 50%;
@@ -463,7 +466,7 @@
 
       <!-- 右下ボタングリッド（CSS grid 配置で重なり防止） -->
       <div id="btn-cluster">
-        <div id="cam-name">CHASE</div>
+        <div id="cam-name">三人称</div>
         <div class="flight-btn" id="btn-flap-up">フラップ<br>▲</div>
         <div class="flight-btn" id="btn-yaw-l">ヨー<br>◀</div>
         <div class="flight-btn" id="btn-yaw-r">ヨー<br>▶</div>

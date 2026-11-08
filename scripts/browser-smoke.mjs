@@ -179,25 +179,25 @@ const stickSign = await page.evaluate(async () => {
   const right = await drag(R, 0, 22);
   const dn = await drag(0, R, 23);
   const dead = await drag(4, -4, 24);
-  // 円の大きく外（左 220px）をタップだけ → 中立のまま
+  // 円の大きく外（左 220px）をタップだけ → 中立のまま。v22: ベース遠方はスティックではなく
+  // カメラスライド経路へ回った — 遠方ドラッグで roll は立たず chaseYaw が動くことを検証
+  const g0 = window.__airliner.game;
+  if (g0.rig.mode !== 'chase') g0.cycleCamera(1);
+  const yaw0 = g0.rig.chaseYaw;
   ev('pointerdown', cx - 220, cy, 25);
   await settle();
   const tapOff = Math.abs(C().pitch) + Math.abs(C().roll);
-  // そこから右へ 30px ドラッグ → 右ロール（rAF 餓死耐性つき待機 — 2026-11-08:
-  // settle() 固定待ちだと headless のバースト frames で誤 FAIL した）
   ev('pointermove', cx - 190, cy, 25);
-  for (let i = 0; i < 40; i++) {
-    await Promise.race([new Promise((res) => requestAnimationFrame(res)), new Promise((res) => setTimeout(res, 2500))]);
-    if (Math.abs(C().roll) >= 0.45) break;
-  }
+  await new Promise((res) => setTimeout(res, 120));
   const offRoll = C().roll;
+  const camYawDelta = g0.rig.chaseYaw - yaw0;
   ev('pointerup', cx - 190, cy, 25);
   for (let i = 0; i < 80; i++) {
     await Promise.race([new Promise((res) => requestAnimationFrame(res)), new Promise((res) => setTimeout(res, 2500))]);
     if (Math.abs(C().pitch) + Math.abs(C().roll) < 0.01) break;
   }
   const released = Math.abs(C().pitch) + Math.abs(C().roll);
-  return { up, right, dn, dead, tapOff, offRoll, released };
+  return { up, right, dn, dead, tapOff, offRoll, camYawDelta, released };
 });
 check('ヨーク方向 (下=手前引き=機首上げ/上=押し=機首下げ/右=右ロール)',
   stickSign.up.p < -0.5 && stickSign.right.r > 0.5 && stickSign.dn.p > 0.5,
@@ -205,9 +205,9 @@ check('ヨーク方向 (下=手前引き=機首上げ/上=押し=機首下げ/�
 check('ヨーク低感度 (満舵<=0.95・デッドゾーン・復帰0)',
   Math.abs(stickSign.up.p) <= 0.95 && stickSign.dead.p + Math.abs(stickSign.dead.r) < 0.02 && stickSign.released < 0.01,
   JSON.stringify(stickSign));
-check('スティック相対入力 (円外タップ=中立・ドラッグで右ロール)',
-  stickSign.tapOff < 0.01 && stickSign.offRoll > 0.3,
-  JSON.stringify({ tapOff: stickSign.tapOff, offRoll: +stickSign.offRoll.toFixed(2) }));
+check('スティック相対入力 (ベース遠方タップ=中立・ドラッグはカメラ経路 v22)',
+  stickSign.tapOff < 0.01 && Math.abs(stickSign.offRoll) < 0.05 && Math.abs(stickSign.camYawDelta) > 0.1,
+  JSON.stringify({ tapOff: stickSign.tapOff, offRoll: +stickSign.offRoll.toFixed(2), camYawDelta: +stickSign.camYawDelta.toFixed(2) }));
 
 // ---- 空中操縦実証（物理ミラー修正の回帰）: 右スティック保持 = 右バンク + 右旋回 ----
 const flyTest = await page.evaluate(() => {
