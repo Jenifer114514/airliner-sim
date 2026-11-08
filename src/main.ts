@@ -139,6 +139,7 @@ const menu = new Menu(() => {
   game.applyEnvironment(menu.config.time, menu.config.weather, menu.config.wind);
   menu.hide();
   hudRoot.style.display = 'block';
+  document.body.classList.remove('ap-settings'); apPanel.style.display = 'none'; // v20: 前回開いたまま開始しない
   touchUI.style.display = 'block';
   instruments.resize();
   callouts.reset();
@@ -317,11 +318,17 @@ bindButton('ap-master', () => {
   game.toggleAp();
   renderApPanel();
 });
-bindButton('btn-ap-set', () => {
-  apPanel.style.display = apPanel.style.display === 'block' ? 'none' : 'block';
+function setApPanel(open: boolean): void {
+  apPanel.style.display = open ? 'block' : 'none';
+  // v20: 設定パネルを開いている間、右の操作ボタン群（#btn-cluster）は隠す
+  document.body.classList.toggle('ap-settings', open);
   apLastSig = '';
   renderApPanel();
+}
+bindButton('btn-ap-set', () => {
+  setApPanel(apPanel.style.display !== 'block');
 });
+bindButton('ap-close', () => setApPanel(false));
 bindButton('ap-spd-dn', () => { game.ap.nudgeSpd(-5); renderApPanel(); });
 bindButton('ap-spd-up', () => { game.ap.nudgeSpd(5); renderApPanel(); });
 bindButton('ap-hdg-l', () => { game.ap.nudgeHdg(-5); renderApPanel(); });
@@ -452,6 +459,7 @@ overlays.on('toMenu', () => {
   overlays.hidePause();
   audio.suspendAll();
   hudRoot.style.display = 'none';
+  document.body.classList.remove('ap-settings'); apPanel.style.display = 'none'; // v20
   touchUI.style.display = 'none';
   menu.show();
 });

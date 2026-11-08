@@ -5,7 +5,7 @@ const PORT = 8179;
 const srv = spawn('node', ['scripts/serve.mjs', String(PORT)], { stdio: 'ignore' });
 await new Promise((r) => setTimeout(r, 700));
 const browser = await chromium.launch({ headless: true, executablePath: '/usr/bin/chromium',
-  args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+  args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', ...(process.env.CHROME_EXTRA_ARGS ? process.env.CHROME_EXTRA_ARGS.split(' ') : [])] });
 const page = await browser.newPage({ viewport: { width: 640, height: 360 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));

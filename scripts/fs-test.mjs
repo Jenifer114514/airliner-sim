@@ -16,7 +16,7 @@ await new Promise((r) => setTimeout(r, 800));
 const browser = await chromium.launch({
   headless: true,
   executablePath: process.env.CHROME_BIN || undefined,
-  args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']
+  args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', ...(process.env.CHROME_EXTRA_ARGS ? process.env.CHROME_EXTRA_ARGS.split(' ') : [])]
 });
 const page = await browser.newPage({ viewport: { width: 800, height: 480 } });
 const errs = [];

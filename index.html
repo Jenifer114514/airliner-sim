@@ -47,6 +47,7 @@
       --right-band: calc(var(--sa-r) + 12px + var(--cluster-w) + var(--throttle-gap) + var(--throttle-w));
 
       --bottom-row: 64px;                    /* 左下ボタン帯（52px + 余白） */
+      --apset-row: 64px;                     /* 右下の AP⚙ 行（52px + 余白）— クラスタはこれだけ上に寄る */
     }
     #game-canvas {
       position: absolute; inset: 0;
@@ -119,7 +120,7 @@
     #btn-cluster {
       position: absolute;
       right: calc(var(--sa-r) + 12px);
-      bottom: calc(var(--sa-b) + 12px);
+      bottom: calc(var(--sa-b) + 12px + var(--apset-row));
       display: grid;
       grid-template-columns: repeat(3, var(--cluster-col));
       gap: var(--cluster-gap);
@@ -151,7 +152,16 @@
       z-index: 12;
     }
     #bottom-left .tbtn { position: static; }
-    #bottom-left .tbtn.on {
+    /* v20: AP⚙ は右下隅の独立トグル。開いている間、右の操作ボタン群は隠れて
+       設定パネルだけが見える（閉じるは AP⚙ 再タップ or ✕ 行） */
+    #btn-ap-set {
+      position: absolute;
+      right: calc(var(--sa-r) + 12px);
+      bottom: calc(var(--sa-b) + 12px);
+      z-index: 13;
+    }
+    body.ap-settings #btn-cluster { display: none; }
+    #bottom-left .tbtn.on, #btn-ap-set.on {
       border-color: rgba(120, 220, 170, 0.95);
       background: rgba(16, 58, 42, 0.72);
       color: #b9f5d4;
@@ -186,9 +196,10 @@
     #ap-panel {
       display: none;
       position: absolute;
-      z-index: 6;
-      left: calc(var(--sa-l) + 12px);
-      top: calc(var(--sa-t) + var(--pad-top) + var(--panel-h) + 44px);
+      z-index: 14;
+      /* v20: 右下 — AP⚙ の真上（旧クラスタ位置）に設定画面だけを出す */
+      right: calc(var(--sa-r) + 12px);
+      bottom: calc(var(--sa-b) + 12px + var(--apset-row));
       width: 236px;
       padding: 8px 9px 9px;
       border-radius: 12px;
@@ -328,9 +339,11 @@
         --cluster-gap: 5px;
         --throttle-gap: 26px;
         --bottom-row: 58px;
+        --apset-row: 58px;
       }
       #sop-banner { padding: 5px 11px; font-size: 12px; }
-      #btn-cluster .flight-btn, #btn-cluster .tbtn { min-height: 38px; font-size: 9px; }
+      #btn-cluster .flight-btn, #btn-cluster .tbtn { min-height: 34px; font-size: 9px; } /* v20: AP⚙ 分行ぶん上にずれるため行数高を節約 */
+      #btn-cluster { grid-template-columns: repeat(4, minmax(0, 46px)); } /* v20: AP⚙ 分行で上に詰まるため 4 列化 */
       #cam-name { font-size: 9px; }
       #throttle-rail { height: clamp(96px, 36vh, 136px); }
       #flight-note { display: none; }
@@ -476,11 +489,11 @@
         <div class="tbtn" id="btn-sound">音<br>ON</div>
         <div class="tbtn" id="btn-inst">計器<br>ON</div>
       </div>
+      <div class="tbtn" id="btn-ap-set">AP<br>⚙</div>
 
       <!-- 左下: flex 行（絶対配置をやめ、構造的に重なりを排除） -->
       <div id="bottom-left">
         <div class="tbtn" id="btn-replay">再<br>スタート</div>
-        <div class="tbtn" id="btn-ap-set">AP<br>⚙</div>
       </div>
 
       <!-- オートパイロット セレクタ（[AP⚙] で開閉。数値は SI 内部→表示のみ kt/ft/min） -->
@@ -515,6 +528,7 @@
         <div class="ap-row">
           <div class="ap-b wide" id="ap-align">LOC+GS アライン</div>
           <div class="ap-b wide" id="ap-master">AP ON</div>
+          <div class="ap-b wide" id="ap-close">✕ 閉じる</div>
         </div>
       </div>
     </div>

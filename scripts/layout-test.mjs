@@ -30,11 +30,11 @@ const VIEWPORTS = [
 const NO_OVERLAP = [
   'inst-panel',
   'throttle-rail', 'btn-cluster',
-  'btn-replay', 'flight-note'
+  'btn-replay', 'btn-ap-set', 'flight-note'
 ];
 
 /** スティック領域に触れてはならない操作系要素（ID） */
-const STICK_EXCLUSIVE = ['throttle-rail', 'btn-cluster', 'btn-replay'];
+const STICK_EXCLUSIVE = ['throttle-rail', 'btn-cluster', 'btn-replay', 'btn-ap-set'];
 
 function intersects(a, b) {
   const x = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
@@ -42,7 +42,7 @@ function intersects(a, b) {
   return x * y;
 }
 
-const browser = await chromium.launch({ executablePath: process.env.CHROME_BIN || undefined, args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const browser = await chromium.launch({ executablePath: process.env.CHROME_BIN || undefined, args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', ...(process.env.CHROME_EXTRA_ARGS ? process.env.CHROME_EXTRA_ARGS.split(' ') : [])] });
 let pass = 0;
 let fail = 0;
 
