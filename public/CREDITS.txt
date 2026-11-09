@@ -1,0 +1,23 @@
+3D MODEL CREDITS
+================
+
+If this build ships `airliner.glb` / `cockpit.glb` (combined local build,
+KEEP_COCKPIT=1), it contains the following third-party models:
+
+
+Exterior:
+  "Boeing 787-9 Singapore Airlines" by mudkipz321
+  https://sketchfab.com/3d-models/boeing-787-9-singapore-airlines-d383b7e3b858407e8cff7365820cc4dd
+  License: CC-BY-4.0
+
+Cockpit:
+  This work is based on "Boeing 757-200 Icelandair Cockpit"
+  (sketchfab.com/3d-models/boeing-757-200-icelandair-cockpit-1cb8f8109cb145849282ad703a652859)
+  by VTX (sketchfab.com/VTX_car) licensed under CC-BY-NC-SA-4.0
+
+重要: コックピット（およびそれを含む結合 airliner.glb）は CC-BY-NC-SA-4.0 のため
+**非営利目的のみ**使用可。この条件を満たさない公開（収益を伴うページ等）には
+airliner.glb / cockpit.glb を含めないこと（デフォルトビルドは自動除去される）。
+
+Standalone cockpit interior model (cockpit.glb) は同梱されていないビルドでは
+手続生成コックピットが使用されます。
