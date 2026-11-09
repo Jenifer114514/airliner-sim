@@ -28,6 +28,15 @@ export const CAMERA_NAMES: Record<CameraMode, string> = {
    wing/orbit/landing はコード遺存だが切替サイクルからは除外。 */
 const MODE_ORDER: CameraMode[] = ['cockpit', 'chase'];
 
+/**
+ * コックピット視点の目の位置（機体ローカル座標: +Z=機首 / +Y=上）。
+ * コックピット内装モデル（render/cockpitModel.ts）の原点＝機長の目 もここに置くので、
+ * カメラ位置を変えるときはこの関数だけを変える。
+ */
+export function cockpitEyeLocal(size: number, out: THREE.Vector3): THREE.Vector3 {
+  return out.set(0, size * 0.026, size * 0.305);
+}
+
 export interface AircraftPose {
   position: THREE.Vector3;
   quaternion: THREE.Quaternion;
@@ -147,7 +156,7 @@ export class CameraRig {
         // パイロット目線: 計器盤（中央 z≈0.33size）・ヨーク（0.34size）より **後方** に置く。
         // 旧値 0.365 は旧機体寸法ベースで、再設計後のコクピット群ではカメラが計器盤より
         // 前に出てしまい「内装が一切見えない」状態になっていた（2026-11-04k 修正）
-        this.desiredPos.set(0, size * 0.026, size * 0.305).applyQuaternion(quaternion).add(position);
+        cockpitEyeLocal(size, this.desiredPos).applyQuaternion(quaternion).add(position);
         this.desiredQuat.copy(quaternion);
         // 機首 +Z をカメラ前方（−Z）へ合わせるため 180° ヨー補正
         this.desiredQuat.multiply(q180Y);

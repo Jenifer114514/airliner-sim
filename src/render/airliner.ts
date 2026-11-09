@@ -16,6 +16,7 @@
  */
 import * as THREE from 'three';
 import type { AirlinerSpec } from '../config/aircraft.js';
+import { attachExtModel, updateExtModel } from './extModel.js';
 import {
   makeFuselageTexture,
   makeFanTexture,
@@ -45,11 +46,15 @@ export interface AirlinerParts {
 interface BuildOptions {
   /** 低ディテール（駐機機用） */
   low?: boolean;
+  /** v24: public/airliner.glb の実モデルを外観へ差し替える（既定 false＝手続描画）。
+   *  メニュープレビュー/駐機機が構図崩れしないよう、有効化はプレイヤー機のみ。 */
+  ext?: boolean;
 }
 
 export function buildAirliner(spec: AirlinerSpec, options: BuildOptions = {}): AirlinerParts {
   const group = new THREE.Group();
   const low = options.low ?? false;
+  const ext = options.ext ?? false;
 
   // ===== マテリアル（PBR） =====
   const fusTex = makeFuselageTexture(
@@ -510,6 +515,7 @@ export function buildAirliner(spec: AirlinerSpec, options: BuildOptions = {}): A
     },
     spinFans(dt: number) {
       for (const f of fanMeshes) f.rotation.z += dt * 14;
+      updateExtModel(group, dt); // v24: GLB プロペラ/車輪クリップ
     },
     updateLights(timeSec: number) {
       // ストロボ: 1.2s 周期で 0.1s 点灯
@@ -521,6 +527,8 @@ export function buildAirliner(spec: AirlinerSpec, options: BuildOptions = {}): A
       for (const m of lightMats) m.visible = true;
     }
   };
+  // v24: 外部 GLB（public/airliner.glb）があれば外観を差し替え。失敗は手続維持。
+  if (ext) void attachExtModel(group);
   return parts;
 }
 

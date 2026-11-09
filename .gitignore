@@ -15,3 +15,5 @@ scripts/.bake-tmp/
 
 # 39MB バイナリ（README の再取得手順で復元）
 tools/
+public/cockpit.glb
+.shots/

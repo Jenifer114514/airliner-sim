@@ -10,7 +10,8 @@
     "build": "vite build",
     "serve": "node scripts/serve.mjs",
     "shots": "node scripts/shots.mjs",
-    "test:browser": "node scripts/browser-smoke.mjs"
+    "test:browser": "node scripts/browser-smoke.mjs",
+    "postbuild": "node scripts/strip-private-assets.mjs"
   },
   "dependencies": {
     "three": "0.170.0"

@@ -20,6 +20,7 @@ import { buildCity } from '../render/city.js';
 import { buildNature } from '../render/nature.js';
 import { buildAirliner, type AirlinerParts } from '../render/airliner.js';
 import { buildCockpit, type CockpitParts } from '../render/cockpit.js';
+import { warmCockpitTextures } from '../render/cockpitModel.js';
 import { CameraRig, CAMERA_NAMES, type CameraMode } from '../render/cameras.js';
 import { DemoFlight, type DemoState } from '../sim/demoFlight.js';
 import { computeNavInfo, runwayEnds, type NavInfo } from '../sim/nav.js';
@@ -55,13 +56,14 @@ const QUAT_LAYOUT = new THREE.Quaternion();
  *  texture は textures.ts の共有キャッシュ側が所有するため dispose しない —
  *  機体切替/再スタートのたびに 2048×1024 級テクスチャがリークしていた対策の後半。*/
 function disposeSubtree(root: THREE.Object3D): void {
-  root.traverse((o) => {
-    const mesh = o as THREE.Mesh;
-    if (mesh.geometry) mesh.geometry.dispose();
-    const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
-    if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-    else mat?.dispose();
-  });
+  // 共有リソース（コックピット GLB テンプレート等）は破棄しない: 次の飛行で再利用する
+  if (root.userData.sharedResources) return;
+  const mesh = root as THREE.Mesh;
+  if (mesh.geometry) mesh.geometry.dispose();
+  const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
+  if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+  else mat?.dispose();
+  for (const c of root.children) disposeSubtree(c);
 }
 
 /** デモ軌道状態 → 汎用テレメトリ変換（getTelemetry のデモ側） */
@@ -447,7 +449,7 @@ export class Game {
       this.scene.remove(this.player.group);
       disposeSubtree(this.player.group);
     }
-    this.player = buildAirliner(this.playerSpec);
+    this.player = buildAirliner(this.playerSpec, { ext: true }); // v24: 実モデルはプレイヤー機のみ
     this.cockpit = buildCockpit(this.playerSpec);
     this.player.group.add(this.cockpit.group);
     this.cockpit.group.visible = this.rig.mode === 'cockpit';
@@ -693,7 +695,11 @@ export class Game {
         agl: Math.max(0, s.position.y - terrainHeight(s.position.x, s.position.z))
       });
     }
-    this.cockpit?.update();
+    if (this.cockpit) {
+      // 室内の明るさ: 昼=1 / 夜≈0.12（空の半球光に追従）。GLB コックピットの環境光の底上げに使う
+      this.cockpit.update(Math.min(1, Math.max(0.12, this.sky.hemi.intensity / 0.75)));
+      warmCockpitTextures(this.renderer); // GPU アップロードを 1 フレーム 1 枚に分散（初回切替のカクつき防止）
+    }
   }
 
   /** 描画共通（世界アニメーション） */
