@@ -1,0 +1,86 @@
+<!doctype html><meta charset=utf-8><title>merge</title><body><script>
+setTimeout(()=>{if(!window.__mergeStats)window.__mergeErr=window.__mergeErr||'page timeout 600s'},600000);
+const UP='http://127.0.0.1:9099/up';
+window.__send=async(meta,body)=>{const h=new TextEncoder().encode(JSON.stringify(meta));const out=new Uint8Array(h.length+1+body.byteLength);out.set(h,0);out[h.length]=0;out.set(new Uint8Array(body),h.length+1);const r=await fetch(UP,{method:'POST',body:out.buffer});if(!r.ok)throw new Error('upload '+r.status);};
+</script>
+<script type="importmap">{"imports":{"three":"./js/three.module.js"}}</script><script type="module">
+const log=(m)=>console.log('[merge]',m);
+const MAXTA=1024, MAXTB=256; // 外観=787素の解像度(縮退は1024上限)、内蔵cockpit=外部ビュー用なので256（操縦席は別途 cockpit.glb が高解像度）
+try{
+const THREE=await import('./js/three.module.js');
+const {GLTFLoader}=await import('./js/GLTFLoader.js');
+const {GLTFExporter}=await import('./js/GLTFExporter.js');
+log('libs loaded');
+const loader=new GLTFLoader();
+const A=(await loader.loadAsync('./scene.gltf')).scene;
+const B=(await loader.loadAsync('./cockpit.glb')).scene;
+log('models loaded');
+{let cnt=0;
+ const down=(root,MAXT)=>{const seen=new Set();
+  root.traverse(o=>{const mats=o.material?(Array.isArray(o.material)?o.material:[o.material]):[];
+   for(const m of mats){if(!m||seen.has(m.uuid))continue;seen.add(m.uuid);
+    for(const key of ['map','normalMap','roughnessMap','metalnessMap','emissiveMap','aoMap']){
+     const t=m[key];if(!t||!t.image||seen.has(t.uuid))continue;seen.add(t.uuid);
+     const w=t.image.width||0,h=t.image.height||0;if(w<=MAXT)continue;
+     const sc=MAXT/w;const c=document.createElement('canvas');c.width=MAXT;c.height=Math.max(1,Math.round(h*sc));
+     c.getContext('2d').drawImage(t.image,0,0,c.width,c.height);
+     const nt=new THREE.CanvasTexture(c);nt.wrapS=t.wrapS;nt.wrapT=t.wrapT;nt.colorSpace=t.colorSpace;nt.anisotropy=2;nt.flipY=t.flipY;nt.needsUpdate=true;
+     m[key]=nt;cnt++;
+    }}});};
+ down(A,MAXTA);down(B,MAXTB);log('textures downscaled: '+cnt);}
+const bb=(o)=>{o.updateMatrixWorld(true);return new THREE.Box3().setFromObject(o);};
+const bA=bb(A); const sA=bA.getSize(new THREE.Vector3());
+const ax = sA.x>=sA.z?'x':'z';
+let hi=0, lo=0; const p=new THREE.Vector3();
+const cy=(bA.min.y+bA.max.y)/2;
+A.traverse(o=>{if(!o.isMesh||!o.geometry?.attributes?.position)return;o.updateWorldMatrix(true,false);
+ const pos=o.geometry.attributes.position,im=o.geometry.index,n=im?im.count:pos.count;
+ const min=ax==='x'?bA.min.x:bA.min.z, span=sA[ax];
+ for(let i=0;i<n;i++){const v=im?im.getX(i):i;p.fromBufferAttribute(pos,v).applyMatrix4(o.matrixWorld);
+  const c=ax==='x'?p.x:p.z; const d=p.y-cy;
+  if(c>min+span*0.94){ if(d>hi)hi=d; } else if(c<min+span*0.06){ if(d>lo)lo=d; }}});
+const noseAtHi = lo>hi;
+log('taper hi='+hi.toFixed(1)+' lo='+lo.toFixed(1));
+A.rotation.y = (ax==='x') ? (noseAtHi?-Math.PI/2:Math.PI/2) : (noseAtHi?0:Math.PI);
+A.updateMatrixWorld(true);
+const nA=bb(A), ns=nA.getSize(new THREE.Vector3());
+let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+const zmax=nA.max.z;
+A.traverse(o=>{if(!o.isMesh||!o.geometry?.attributes?.position)return;o.updateWorldMatrix(true,false);
+ const pos=o.geometry.attributes.position,im=o.geometry.index,n=im?im.count:pos.count;
+ for(let i=0;i<n;i++){const v=im?im.getX(i):i;p.fromBufferAttribute(pos,v).applyMatrix4(o.matrixWorld);
+  const t=(p.z-nA.min.z)/ns.z;
+  if(t>0.86&&t<0.96){ if(p.x<x0)x0=p.x; if(p.x>x1)x1=p.x; if(p.y<y0)y0=p.y; if(p.y>y1)y1=p.y; }}});
+const fuseW=x1-x0, fuseH=y1-y0;
+const bB=bb(B), sB=bB.getSize(new THREE.Vector3()), cB=bB.getCenter(new THREE.Vector3());
+const s = fuseW*0.92/sB.x;
+B.scale.setScalar(s);
+B.updateMatrixWorld(true);
+const bB2=bb(B);
+B.position.set(-cB.x*s, 0, 0);
+B.position.z = (zmax - fuseW*0.055) - bB2.max.z;
+B.position.y = (y0 + fuseH*0.30) - bB2.min.y;
+B.updateMatrixWorld(true);
+const Bwrap=new THREE.Group(); Bwrap.name='MergedCockpit'; Bwrap.userData={extras:{mergedCockpit:true}}; Bwrap.add(B);
+const outer=new THREE.Group(); outer.name='Airframe_Merged';
+outer.add(A); outer.add(Bwrap); outer.updateMatrixWorld(true);
+const fin=bb(outer), fs=fin.getSize(new THREE.Vector3()), fc=fin.getCenter(new THREE.Vector3());
+outer.position.set(-fc.x, -fin.min.y, -fc.z);
+outer.updateMatrixWorld(true);
+let tri=0, meshes=0;
+outer.traverse(o=>{if(o.isMesh&&o.geometry){meshes++;const g=o.geometry;tri+=(g.index?g.index.count:g.attributes.position.count)/3;}});
+window.__mergeStats={axis:ax,noseAtHi,cockpitScale:+s.toFixed(4),final:{size:fs.toArray().map(v=>+v.toFixed(2)),meshes,tri:Math.round(tri)}};
+log('stats '+JSON.stringify(window.__mergeStats));
+const rend=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
+rend.setSize(880,520);document.body.appendChild(rend.domElement);
+const sc=new THREE.Scene();sc.background=new THREE.Color(0x9fc4e8);sc.add(outer);
+const cam=new THREE.PerspectiveCamera(40,880/520,0.1,6000);
+async function shoot(name,fn){fn();rend.render(sc,cam);const blob=await new Promise(r=>rend.domElement.toBlob(r,'image/png'));await window.__send({kind:'shot',name},await blob.arrayBuffer());log('shot '+name);}
+await shoot('side',()=>{cam.position.set(-fs.x*1.5,fs.y*0.75,fs.z*0.25);cam.lookAt(new THREE.Vector3(0,fs.y*0.45,0));});
+await shoot('inside',()=>{A.visible=false;const b2=bb(Bwrap);const c2=b2.getCenter(new THREE.Vector3());const dz=b2.max.z-b2.min.z,dy=b2.max.y-b2.min.y;cam.position.set(c2.x, b2.max.y-dy*0.30, b2.min.z+dz*0.18);cam.lookAt(c2.x, b2.max.y-dy*0.42, b2.max.z+dz*0.6);});
+rend.dispose();rend.forceContextLoss();log('renderer disposed');
+const ab=await new Promise((ok,no)=>new GLTFExporter().parse(outer,ok,no,{binary:true,onlyVisible:false}));
+await window.__send({kind:'glb'},ab);
+log('exported '+(ab.byteLength/1048576).toFixed(1)+'MB');
+}catch(e){window.__mergeErr=String(e&&e.stack||e);log('ERR '+window.__mergeErr);}
+</script>

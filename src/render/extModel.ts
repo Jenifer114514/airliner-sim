@@ -20,9 +20,21 @@ interface ExtModelHandle {
   mixer: THREE.AnimationMixer;
   /** 整定情報（検証用・素数値のみ）: [modelLen*scale, modelSpan, modelH] と全長基準 */
   fit: { size: number[]; refLen: number; scale: number };
+  /** 再生アニメ数（v26: アニメなし GLB でも ⑤ 検証が落ちないように） */
+  clips: number;
+  /** v26: 機体に内蔵されたコックピット（MergedCockpit）。コックピット視点では非表示に */
+  mergedCockpit: THREE.Object3D | null;
 }
 
+/** v26: airliner.glb（787 Singapore + 757 cockpit 内蔵の結合モデル）のクレジット */
+export const AIRLINER_MODEL_CREDIT =
+  'This work is based on "Boeing 787-9 Singapore Airlines" ' +
+  '(sketchfab.com/3d-models/boeing-787-9-singapore-airlines-d383b7e3b858407e8cff7365820cc4dd) ' +
+  'by mudkipz321 (sketchfab.com/mudkipz321), licensed under CC-BY-4.0. ' +
+  'The embedded cockpit is based on "Boeing 757-200 Icelandair Cockpit" by VTX, CC-BY-NC-SA-4.0.';
+
 let template: Promise<GltfLite | null> | null = null;
+let creditLogged = false;
 
 /** 一度だけ読む（複数機体で共有）。fetch/parse 失敗は null。 */
 export function extModelTemplate(): Promise<GltfLite | null> {
@@ -109,15 +121,28 @@ export async function attachExtModel(group: THREE.Group): Promise<boolean> {
   proc.visible = false;
   group.add(proc, root);
   const fs2 = new THREE.Box3().setFromObject(root).getSize(new THREE.Vector3());
+  // v26: 内蔵コックピット（MergedCockpit / extras.mergedCockpit）を特定
+  let mergedCockpit: THREE.Object3D | null = null;
+  root.traverse((o) => {
+    if (!mergedCockpit && (o.name === 'MergedCockpit' || o.userData?.extras?.mergedCockpit || (o.userData as { mergedCockpit?: boolean })?.mergedCockpit)) {
+      mergedCockpit = o;
+    }
+  });
   group.userData.extModel = {
     root, mixer,
-    fit: { size: [+fs2.x.toFixed(2), +fs2.y.toFixed(2), +fs2.z.toFixed(2)], refLen: +ps.z.toFixed(2), scale: +scale.toFixed(4) }
+    fit: { size: [+fs2.x.toFixed(2), +fs2.y.toFixed(2), +fs2.z.toFixed(2)], refLen: +ps.z.toFixed(2), scale: +scale.toFixed(4) },
+    clips: t.animations.length,
+    mergedCockpit
   } satisfies ExtModelHandle;
+  if (!creditLogged) { creditLogged = true; console.info('[ext]', AIRLINER_MODEL_CREDIT); }
   return true;
 }
 
 /** 機体の毎フレーム（spinFans に相乗り）。プロペラ等のクリップ再生。 */
 export function updateExtModel(group: THREE.Group, dt: number): void {
   const h = group.userData.extModel as ExtModelHandle | undefined;
-  if (h) h.mixer.update(dt);
+  if (!h) return;
+  if (h.clips > 0) h.mixer.update(dt);
+  // v26: コックピット視点では機体内蔵の cockpit を隠す（専用 cockpit.glb と二重描画防止）
+  if (h.mergedCockpit) h.mergedCockpit.visible = !group.userData.extCockpitView;
 }

@@ -20,7 +20,7 @@ const srv = spawn('node', ['scripts/serve.mjs', String(PORT)], { stdio: 'ignore'
 await new Promise((r) => setTimeout(r, 700));
 const browser = await chromium.launch({
   headless: true, executablePath: process.env.CHROME_BIN || '/usr/bin/chromium',
-  args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']
+  args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-dev-shm-usage', '--js-flags=--max-old-space-size=4096']
 });
 
 async function boot(query) {
@@ -67,9 +67,9 @@ check('④b メニュープレビューは手続維持（構図保護）', await
 }));
 await p1.waitForFunction(() => {
   const g = window.__airliner.game?.player?.group;
-  return !!g && g.userData.extModel.mixer.time > 0.02;
+  return !!g && (g.userData.extModel.clips === 0 || g.userData.extModel.mixer.time > 0.02);
 }, null, { timeout: 30000 }).catch(() => undefined);
-check('⑤ プロペラ mixer 進行（spinFans 相乗り）', await p1.evaluate(() => window.__airliner.game.player.group.userData.extModel.mixer.time > 0.02));
+check('⑤ プロペラ mixer 進行（アニメなし GLB はスキップ可）', await p1.evaluate(() => { const h = window.__airliner.game.player.group.userData.extModel; return h.clips === 0 || h.mixer.time > 0.02; }));
 check('⑥ error 0（フライト）', errs.length === 0, errs.slice(0, 3).join(' | '));
 await p1.screenshot({ path: '.shots/v24-chase.png', timeout: 80000 });
 await p1.close();

@@ -453,6 +453,7 @@ export class Game {
     this.cockpit = buildCockpit(this.playerSpec);
     this.player.group.add(this.cockpit.group);
     this.cockpit.group.visible = this.rig.mode === 'cockpit';
+    this.player.group.userData.extCockpitView = this.rig.mode === 'cockpit' || this.cockpit.hasModel(); // v26
     this.scene.add(this.player.group);
 
     if (mode === 'free') {
@@ -521,6 +522,7 @@ export class Game {
   cycleCamera(dir: 1 | -1): CameraMode {
     const mode = dir === 1 ? this.rig.nextMode() : this.rig.prevMode();
     if (this.cockpit) this.cockpit.group.visible = mode === 'cockpit';
+    if (this.player) this.player.group.userData.extCockpitView = mode === 'cockpit'; // v26
     return mode;
   }
 
@@ -696,6 +698,8 @@ export class Game {
       });
     }
     if (this.cockpit) {
+      // v26: 内蔵cockpitの可視性——毎フレーム同期（rig.setMode 直呼びでも壊れない）
+      if (this.player) this.player.group.userData.extCockpitView = this.rig.mode === 'cockpit' || this.cockpit.hasModel(); // 専用cockpit存在時は内蔵版非描画（二重描画防止）
       // 室内の明るさ: 昼=1 / 夜≈0.12（空の半球光に追従）。GLB コックピットの環境光の底上げに使う
       this.cockpit.update(Math.min(1, Math.max(0.12, this.sky.hemi.intensity / 0.75)));
       warmCockpitTextures(this.renderer); // GPU アップロードを 1 フレーム 1 枚に分散（初回切替のカクつき防止）

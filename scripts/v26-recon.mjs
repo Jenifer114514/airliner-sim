@@ -1,0 +1,12 @@
+import { chromium } from 'playwright-core';
+import { spawn } from 'node:child_process';
+const srv = spawn('node', ['scripts/serve.mjs', '8213'], { stdio: 'ignore' });
+await new Promise(r => setTimeout(r, 700));
+const b = await chromium.launch({ headless: true, executablePath: process.env.CHROME_BIN || '/usr/bin/chromium', args: ['--no-sandbox'] });
+const p = await b.newPage();
+p.on('pageerror', e => console.log('PAGEERR', String(e).slice(0, 300)));
+p.on('console', m => { if (m.type()==='error') console.log('CONERR', m.text().slice(0,200)); });
+await p.goto('http://127.0.0.1:8213/_recon/recon.html', { waitUntil: 'domcontentloaded' });
+await p.waitForFunction(() => document.title === 'done', null, { timeout: 90000 });
+console.log(JSON.stringify(await p.evaluate(() => window.__recon), null, 1));
+await b.close(); srv.kill();

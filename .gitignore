@@ -17,3 +17,5 @@ scripts/.bake-tmp/
 tools/
 public/cockpit.glb
 .shots/
+public/airliner.glb
+airliner-sim-src.zip

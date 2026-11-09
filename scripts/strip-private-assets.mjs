@@ -5,12 +5,13 @@
 //
 // 理由: public/ の中身は dist にそのままコピーされ、GitHub Pages に載ると誰でもダウンロードできる。
 //       cockpit.glb は CC-BY-NC-SA-4.0 のモデル由来（非営利・要クレジット・継承）なので、既定では公開物に含めない。
+//       v26: 結合 airliner.glb（787 Singapore + 757 cockpit 内蔵）も cockpit 由来部分を含むため同様に除く。
 import { existsSync, rmSync } from 'node:fs';
 
 if (process.env.KEEP_COCKPIT === '1') {
   console.log('[strip] KEEP_COCKPIT=1 → dist/cockpit.glb を残します');
 } else {
-  for (const f of ['dist/cockpit.glb', 'web/cockpit.glb']) {
+  for (const f of ['dist/cockpit.glb', 'web/cockpit.glb', 'dist/airliner.glb', 'web/airliner.glb']) {
     if (existsSync(f)) {
       rmSync(f);
       console.log('[strip] removed', f);
