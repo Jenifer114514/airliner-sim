@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0b1017" />
+  <title>Airliner Sim — 3D旅客機フライトシミュレーター</title>
+  <style>
+    /* ===== 基盤: 画面固定・ズーム/スクロール/選択禁止 ===== */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      overscroll-behavior: none;
+      position: fixed; inset: 0;
+      background: #0b1017;
+      color: #d7e2ee;
+      font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+      -webkit-user-select: none; user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-touch-callout: none;
+      touch-action: none;
+    }
+    #app { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
+
+    /* ===== レイアウト設計変数（全ての UI 位置はここから導出＝重なりを構造的に防止） =====
+       右側帯 --right-band = 安全エリア + ボタンクラスタ + 間隔 + スロットル。
+       スティック領域・SOP バナーはこの帯に「絶対に入らない」幅で計算される。 */
+    :root {
+      --sa-t: env(safe-area-inset-top, 0px);
+      --sa-r: env(safe-area-inset-right, 0px);
+      --sa-b: env(safe-area-inset-bottom, 0px);
+      --sa-l: env(safe-area-inset-left, 0px);
+
+      --panel-h: clamp(92px, 24vh, 124px);   /* 計器盤の高さ */
+      --pad-top: 6px;                        /* 計器盤の上余白 */
+      --banner-h: 42px;                      /* SOP バナーが確保する帯（非表示時も予約） */
+
+      --cluster-col: 64px;                   /* ボタンクラスタ 1 列幅 */
+      --cluster-gap: 6px;
+      --cluster-w: calc(var(--cluster-col) * 3 + var(--cluster-gap) * 2);
+      --throttle-w: 52px;
+      --throttle-gap: 28px;                  /* クラスタ⇔スロットル間隔（ノブのはみ出し 6px×2 + 余裕 16px） */
+      --right-band: calc(var(--sa-r) + 12px + var(--cluster-w) + var(--throttle-gap) + var(--throttle-w));
+
+      --bottom-row: 64px;                    /* 左下ボタン帯（52px + 余白） */
+      --apset-row: 62px;                     /* v21: AP 行ぶん（44px + 余白）— 設定パネルはクラスタ最下行の上に被さる */
+    }
+    #game-canvas {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%; display: block;
+      touch-action: none;
+    }
+
+    /* ===== HUD（航空機器風・落ち着いたトーン） ===== */
+    #hud {
+      position: absolute; inset: 0; pointer-events: none;
+      padding:
+        calc(env(safe-area-inset-top, 0px) + 8px)
+        calc(env(safe-area-inset-right, 0px) + 10px)
+        calc(env(safe-area-inset-bottom, 0px) + 8px)
+        calc(env(safe-area-inset-left, 0px) + 10px);
+      font-size: clamp(10px, 2.1vw, 13px);
+      color: #8fe3ff;
+      text-shadow: 0 0 7px rgba(90, 190, 255, 0.45), 0 1px 2px rgba(0,0,0,0.75);
+    }
+    #inst-panel {
+      position: absolute;
+      display: block;
+      top: calc(var(--sa-t) + var(--pad-top));
+      left: calc(var(--sa-l) + 8px);
+      width: calc(100% - var(--sa-l) - var(--sa-r) - 16px);
+      height: var(--panel-h);
+      pointer-events: none;
+      z-index: 3;
+    }
+
+    /* SOP コールアウトバナー（計器盤の直下・右側帯を除いた空き領域の中央。空のときは非表示）
+       スロットル/ボタンクラスタの帯（--right-band）には絶対にはみ出さない。 */
+    #sop-banner {
+      display: none;
+      position: absolute;
+      top: calc(var(--sa-t) + var(--pad-top) + var(--panel-h) + 8px);
+      left: calc(var(--sa-l) + (100% - var(--sa-l) - var(--right-band)) / 2);
+      transform: translateX(-50%);
+      max-width: calc(100% - var(--sa-l) - var(--right-band) - 16px);
+      padding: 8px 16px;
+      border-radius: 999px;
+      background: rgba(10, 18, 32, 0.82);
+      border: 1.5px solid rgba(120, 175, 225, 0.6);
+      color: #eaf2fb;
+      font: 700 clamp(12px, 2.6vw, 15px)/1.35 -apple-system, sans-serif;
+      text-align: center;
+      text-shadow: none;
+      pointer-events: none;
+      z-index: 2;
+    }
+    #sop-banner.show { display: block; }
+    #sop-banner.warn { border-color: rgba(255, 178, 60, 0.9); color: #ffd27a; }
+
+    /* ===== タッチ UI ===== */
+    #touch-ui { position: absolute; inset: 0; touch-action: none; }
+    .tbtn {
+      position: absolute;
+      min-width: 52px; min-height: 52px;
+      border-radius: 12px;
+      border: 1.5px solid rgba(120, 175, 225, 0.42);
+      background: rgba(18, 34, 54, 0.50);
+      color: #cfe6f8;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.05em;
+      display: flex; align-items: center; justify-content: center;
+      text-align: center; padding: 4px 9px;
+      touch-action: none;
+    }
+    .tbtn:active, .tbtn.active { background: rgba(70, 130, 200, 0.55); border-color: rgba(170, 215, 255, 0.85); }
+    /* 右下ボタングリッド（CSS grid 固定配置＝重なり不能・全ボタンをここに集約） */
+    #btn-cluster {
+      position: absolute;
+      right: calc(var(--sa-r) + 12px);
+      bottom: calc(var(--sa-b) + 12px);
+      display: grid;
+      grid-template-columns: repeat(3, var(--cluster-col));
+      gap: var(--cluster-gap);
+      z-index: 12;
+    }
+    #btn-cluster .flight-btn, #btn-cluster .tbtn {
+      position: static;
+      width: 100%; min-width: 0; min-height: 44px;
+      box-sizing: border-box;
+      padding: 3px 4px;
+    }
+    #cam-name {
+      grid-column: 1 / -1;
+      background: rgba(10, 18, 28, 0.45);
+      border: 1px solid rgba(110, 175, 230, 0.28);
+      border-radius: 999px; padding: 2px 10px;
+      font-size: 10px; letter-spacing: 0.12em; color: #9fd6ff;
+      pointer-events: none;
+      text-align: center;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    /* v21: 「再スタート」廃止 + AP⚙ をクラスタ内（3列×4行・最右下）へ統合。
+       開いている間は AP 以外のセルを visibility:hidden（レイアウトは維持され、
+       AP を再タップして閉じられる）。パネルは伏せた 1〜3 行目の場所に出る。 */
+    body.ap-settings #btn-cluster > :not(#btn-ap-set) { visibility: hidden; }
+    #btn-ap-set.on {
+      border-color: rgba(120, 220, 170, 0.95);
+      background: rgba(16, 58, 42, 0.72);
+      color: #b9f5d4;
+    }
+    #ap-strip {
+      display: none;
+      position: absolute;
+      z-index: 2;
+      pointer-events: none;
+      top: calc(var(--sa-t) + var(--pad-top) + var(--panel-h) + 10px);
+      left: calc(var(--sa-l) + 12px);
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(8, 22, 16, 0.66);
+      border: 1px solid rgba(120, 220, 170, 0.5);
+      color: #7ce8b0;
+      font: 700 clamp(9px, 1.9vw, 11px)/1.3 -apple-system, sans-serif;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+    #ap-strip { display: none; align-items: center; flex-wrap: wrap; gap: 4px; max-width: min(68vw, 560px); }
+    .ap-chip {
+      pointer-events: auto;
+      padding: 1px 7px; border-radius: 999px; margin-left: 4px;
+      border: 1px solid rgba(120, 220, 170, 0.45);
+      background: rgba(10, 30, 22, 0.55); color: #86dcb2;
+      font: 700 10px/1.5 -apple-system, sans-serif; letter-spacing: 0.05em;
+      user-select: none; -webkit-user-select: none; cursor: pointer;
+    }
+    .ap-chip.on { background: rgba(46, 190, 120, 0.85); color: #04170e; border-color: rgba(190, 255, 220, 0.95); }
+    /* --- AP セレクタパネル（計器下左。開いている間のみタッチを奪う） --- */
+    #ap-panel {
+      display: none;
+      position: absolute;
+      z-index: 14;
+      /* v20: 右下 — AP⚙ の真上（旧クラスタ位置）に設定画面だけを出す */
+      right: calc(var(--sa-r) + 12px);
+      bottom: calc(var(--sa-b) + 12px + var(--apset-row));
+      max-height: calc(100vh - var(--sa-t) - var(--pad-top) - var(--panel-h) - 56px);
+      overflow-y: auto;
+      width: 236px;
+      padding: 8px 9px 9px;
+      border-radius: 12px;
+      background: rgba(9, 17, 30, 0.92);
+      border: 1.5px solid rgba(120, 220, 170, 0.45);
+      color: #d9f4e6;
+      font: 600 11px/1.25 -apple-system, sans-serif;
+      touch-action: none;
+    }
+    #ap-panel .ap-row {
+      display: flex; align-items: center; gap: 5px; margin-top: 5px;
+    }
+    #ap-panel .ap-key { width: 30px; color: #7ce8b0; font-weight: 800; }
+    #ap-panel .ap-val {
+      flex: 1; text-align: center; font-variant-numeric: tabular-nums;
+      background: rgba(120, 220, 170, 0.10); border-radius: 6px; padding: 5px 2px;
+      color: #eafbf2; font-weight: 800;
+    }
+    #ap-panel .ap-b {
+      min-width: 34px; height: 34px; border-radius: 8px;
+      border: 1.5px solid rgba(120, 220, 170, 0.45);
+      background: rgba(20, 46, 38, 0.8); color: #bff0d6;
+      font: 800 12px -apple-system, sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      user-select: none; -webkit-user-select: none;
+    }
+    #ap-panel .ap-b:active { background: rgba(60, 130, 100, 0.85); }
+    #ap-panel .ap-b.on {
+      border-color: rgba(150, 255, 200, 0.95); background: rgba(34, 96, 70, 0.95); color: #d9ffe9;
+    }
+    #ap-panel .ap-b.wide { flex: 1; height: 30px; font-size: 10px; }
+
+    /* ===== 飛行操縦 UI（Phase 3） =====
+       スティック領域は「計器盤の下」から「左下ボタン帯の上」まで・右側帯には入れない。
+       → 計器盤/ボタン/スロットルと矩形が交差しないことが layout-test で検証される。 */
+    #stick-zone {
+      position: absolute;
+      left: 0;
+      top: calc(var(--sa-t) + var(--pad-top) + var(--panel-h) + 10px);
+      /* v22: ベースを画面下端近くへ寄せた（旧: 左下帯 64px + 10px 上がり）。
+         ベース遠方の接触はカメラスライドへ回るため、拡張しても操作は競合しない */
+      bottom: calc(var(--sa-b) + 2px);
+      width: min(56%, calc(100% - var(--right-band) - 20px));
+      touch-action: none;
+    }
+    #stick-visual {
+      /* v3: 固定スティック —— ベースをゾーン中央下に常時表示（タッチ位置へ飛ばさない）。
+         入力はベース中心からの絶対偏向。操作ヒント(flight-note)とは pointer-events:none の
+         非操作レイヤー同士の意図的重なり（自動フェード後消失）。 */
+      display: block;
+      position: absolute;
+      z-index: 1;
+      /* v22: 左下寄へ（旧: 中央下 bottom 14px）— 親指位置をさらに縁へ */
+      left: 44%;
+      transform: translateX(-50%);
+      bottom: 6px;
+      width: clamp(96px, 36vh, 128px);
+      height: clamp(96px, 36vh, 128px);
+      border-radius: 50%;
+      border: 2px solid rgba(120, 190, 240, 0.55);
+      background: rgba(30, 60, 95, 0.30);
+      pointer-events: none;
+    }
+    #stick-knob {
+      position: absolute;
+      left: 50%; top: 50%;
+      width: 52px; height: 52px;
+      margin: -26px 0 0 -26px;
+      border-radius: 50%;
+      background: rgba(130, 200, 250, 0.55);
+      border: 2px solid rgba(190, 230, 255, 0.8);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 8.5px; color: #0c2233; font-weight: 800;
+    }
+    #throttle-rail {
+      position: absolute;
+      /* クラスタ左端 + 間隔（--throttle-gap: ノブのはみ出し 6px×2 を含む）→ ボタンと絶対に重ならない */
+      right: calc(var(--sa-r) + 12px + var(--cluster-w) + var(--throttle-gap));
+      bottom: calc(var(--sa-b) + 12px);
+      width: var(--throttle-w); height: clamp(104px, 38vh, 160px);
+      border-radius: 14px;
+      border: 2px solid rgba(120, 175, 225, 0.42);
+      background: rgba(18, 34, 54, 0.50);
+      touch-action: none;
+      z-index: 11;
+    }
+    #throttle-knob {
+      position: absolute;
+      left: 50%; top: 10%;
+      width: 64px; height: 30px;
+      margin-left: -32px;
+      border-radius: 9px;
+      background: linear-gradient(180deg, #7fd0ff, #2f86c8);
+      border: 1.5px solid rgba(200, 235, 255, 0.85);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 9px; font-weight: 800; color: #08202f;
+      pointer-events: none;
+    }
+    #throttle-label {
+      position: absolute;
+      left: 50%; top: -18px; transform: translateX(-50%);
+      font-size: 9px; letter-spacing: 0.12em; color: #9fd6ff;
+      white-space: nowrap;
+    }
+    .flight-btn {
+      position: absolute;
+      min-width: 62px; min-height: 46px;
+      border-radius: 11px;
+      border: 1.5px solid rgba(120, 175, 225, 0.42);
+      background: rgba(18, 34, 54, 0.50);
+      color: #cfe6f8;
+      font-size: 10px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      text-align: center;
+      touch-action: none;
+    }
+    .flight-btn:active, .flight-btn.active { background: rgba(70, 130, 200, 0.55); border-color: rgba(170, 215, 255, 0.85); }
+    .flight-btn.on { background: rgba(196, 120, 30, 0.55); border-color: rgba(255, 190, 110, 0.85); }
+    /* 個別ボタンの絶対配置は廃止 → #btn-cluster のグリッド配置に統一 */
+    /* 操作ヒント: 左下ボタン帯の直上（スティック円より下層・一定時間で自動フェード） */
+    #flight-note {
+      position: absolute;
+      left: calc(var(--sa-l) + 14px);
+      bottom: calc(var(--sa-b) + var(--bottom-row) + 14px);
+      width: min(30%, 250px);
+      font-size: 9px; line-height: 1.6; opacity: 0.75;
+      color: #9fd6ff; pointer-events: none;
+      z-index: 1;
+      transition: opacity 1.2s ease;
+    }
+    #flight-note.fade { opacity: 0; }
+
+    /* 低さのある画面（iPhone 横 Safari など）: 変数だけ差し替えて全体を一括コンパクト化。
+       位置は全て変数から導出されるため、この変更だけで重なりは発生しない。 */
+    @media (max-height: 400px) {
+      :root {
+        --panel-h: 80px;
+        --banner-h: 34px;
+        --cluster-col: 56px;
+        --cluster-gap: 5px;
+        --throttle-gap: 26px;
+        --bottom-row: 58px;
+        --apset-row: 51px;
+      }
+      #sop-banner { padding: 5px 11px; font-size: 12px; }
+      #btn-cluster .flight-btn, #btn-cluster .tbtn { min-height: 34px; font-size: 9px; }
+      #btn-cluster { bottom: calc(var(--sa-b) + 8px); }
+      #cam-name { font-size: 9px; }
+      #throttle-rail { height: clamp(96px, 36vh, 136px); }
+      #flight-note { display: none; }
+    }
+
+    /* 縦画面: 回転案内オーバーレイ（#portrait-overlay）のみを表示し、
+       飛行 UI は非表示にする（狭い幅ではボタン帯が物理的に収まらないため）。 */
+    @media (orientation: portrait) {
+      #touch-ui, #hud { display: none !important; }
+    }
+
+    /* ===== オーバーレイ ===== */
+    .overlay {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: rgba(8, 13, 20, 0.62);
+      backdrop-filter: blur(5px);
+      -webkit-backdrop-filter: blur(5px);
+      z-index: 20;
+      padding:
+        calc(env(safe-area-inset-top, 0px) + 12px)
+        calc(env(safe-area-inset-right, 0px) + 12px)
+        calc(env(safe-area-inset-bottom, 0px) + 12px)
+        calc(env(safe-area-inset-left, 0px) + 12px);
+      overflow-y: auto;
+      touch-action: pan-y;
+    }
+    .overlay.hidden { display: none; }
+    .overlay.top { justify-content: flex-start; }
+    .title {
+      font-size: clamp(21px, 5.2vw, 34px);
+      font-weight: 800; letter-spacing: 0.14em;
+      color: #b8d9f2;
+      text-shadow: 0 0 22px rgba(90, 170, 240, 0.5);
+      margin-bottom: 2px; text-align: center;
+    }
+    .subtitle {
+      font-size: clamp(10.5px, 2.6vw, 13px);
+      opacity: 0.85; margin-bottom: 14px; text-align: center;
+      letter-spacing: 0.10em; color: #ffc873;
+    }
+    .section-label {
+      font-size: 10.5px; letter-spacing: 0.20em; opacity: 0.72;
+      margin: 12px 0 7px; color: #8ab6d8;
+    }
+    .cards { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+    .card {
+      border: 1.5px solid rgba(105, 165, 215, 0.34);
+      background: rgba(16, 30, 48, 0.55);
+      border-radius: 12px;
+      padding: 10px 13px;
+      min-width: 150px; max-width: 210px;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    .card.selected {
+      border-color: #6fc2ff;
+      background: rgba(32, 76, 128, 0.62);
+      box-shadow: 0 0 16px rgba(90, 185, 255, 0.32);
+    }
+    .card h3 { font-size: 13px; margin-bottom: 4px; color: #e3f0fb; }
+    .card p  { font-size: 10px; line-height: 1.6; opacity: 0.85; }
+    .chip-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+    .chip {
+      border: 1.5px solid rgba(105, 165, 215, 0.34);
+      background: rgba(16, 30, 48, 0.55);
+      border-radius: 999px;
+      padding: 8px 15px; font-size: 11px;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    .chip.selected { border-color: #6fc2ff; background: rgba(32, 76, 128, 0.62); }
+    .big-btn {
+      margin-top: 18px;
+      border: none; border-radius: 14px;
+      padding: 15px 40px;
+      font-size: 16px; font-weight: 800; letter-spacing: 0.16em;
+      color: #071622;
+      background: linear-gradient(180deg, #8fd8ff, #3c98d6);
+      box-shadow: 0 6px 24px rgba(70, 170, 240, 0.38);
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    .big-btn.secondary {
+      background: rgba(50, 95, 145, 0.5); color: #cfe6f8;
+      box-shadow: none; margin-top: 10px;
+    }
+    .note {
+      margin-top: 14px; font-size: 10px; line-height: 1.85; opacity: 0.74;
+      max-width: 560px; text-align: center;
+    }
+
+    /* ===== 縦画面誘導 / WebGL エラー ===== */
+    #portrait-overlay { z-index: 50; background: #0b1017; }
+    #portrait-overlay .rot-icon { font-size: 52px; margin-bottom: 12px; }
+    #webgl-error { z-index: 60; background: #1a0d0d; color: #ffb4a8; }
+    #webgl-error .title { color: #ff8877; text-shadow: none; }
+  </style>
+  <script type="module" crossorigin src="./assets/index-C-d-rGM9.js"></script>
+</head>
+<body>
+  <div id="app">
+    <canvas id="game-canvas"></canvas>
+
+    <!-- 飛行中 HUD（Phase 4: キャンバス計器盤。値はシミュレーション状態のみ参照） -->
+    <div id="hud" style="display:none">
+      <canvas id="inst-panel"></canvas>
+      <div id="sop-banner"></div>
+      <div id="ap-strip"><span id="ap-strip-txt"></span><span class="ap-chip" id="ap-ch-hdg">HDG</span><span class="ap-chip" id="ap-ch-nav">NAV</span><span class="ap-chip" id="ap-ch-vs">V/S</span><span class="ap-chip" id="ap-ch-alt">ALT</span></div>
+    </div>
+
+    <!-- タッチ操作 -->
+    <div id="touch-ui" style="display:none">
+      <!-- 仮想スティック（ピッチ/ロール） -->
+      <div id="stick-zone">
+        <div id="stick-visual"><div id="stick-knob">YOKE</div></div>
+      </div>
+      <div id="flight-note">
+        左の円をドラッグ = ヨーク操作<br>
+        （下=手前引き=機首上げ / 上=押し出し=機首下げ / 右=右ロール）<br>
+        右レバー = スロットル<br>
+        キー: 矢印=操縦 Q/E=ヨー<br>Shift=スロットル G=ギア F=フラップ
+      </div>
+
+      <!-- スロットル -->
+      <div id="throttle-rail">
+        <div id="throttle-label">THR</div>
+        <div id="throttle-knob">90%</div>
+      </div>
+
+      <!-- 右下ボタングリッド（CSS grid 配置で重なり防止） -->
+      <div id="btn-cluster">
+        <div id="cam-name">三人称</div>
+        <div class="flight-btn" id="btn-flap-up">フラップ<br>▲</div>
+        <div class="flight-btn" id="btn-yaw-l">ヨー<br>◀</div>
+        <div class="flight-btn" id="btn-yaw-r">ヨー<br>▶</div>
+        <div class="flight-btn" id="btn-flap-dn">フラップ<br>▼</div>
+        <div class="flight-btn" id="btn-brake">ブレーキ</div>
+        <div class="flight-btn" id="btn-gear">ギア<br>DOWN</div>
+        <div class="flight-btn" id="btn-spoiler">スポイラー</div>
+        <div class="tbtn" id="btn-camera">カメラ<br>切替</div>
+        <div class="tbtn" id="btn-pause">⏸</div>
+        <div class="tbtn" id="btn-sound">音<br>ON</div>
+        <div class="tbtn" id="btn-inst">計器<br>ON</div>
+        <div class="tbtn" id="btn-ap-set">AP<br>⚙</div>
+      </div>
+
+      <!-- オートパイロット セレクタ（[AP⚙] で開閉。数値は SI 内部→表示のみ kt/ft/min） -->
+      <div id="ap-panel">
+        <div class="ap-row">
+          <span class="ap-key">SPD</span>
+          <div class="ap-b" id="ap-spd-dn">−</div>
+          <span class="ap-val" id="ap-v-spd">120 kt</span>
+          <div class="ap-b" id="ap-spd-up">＋</div>
+        </div>
+        <div class="ap-row">
+          <span class="ap-key">HDG</span>
+          <div class="ap-b" id="ap-hdg-l">◀</div>
+          <span class="ap-val" id="ap-v-hdg">000°</span>
+          <div class="ap-b" id="ap-hdg-r">▶</div>
+          <div class="ap-b wide" id="ap-lat">HDG</div>
+        </div>
+        <div class="ap-row">
+          <span class="ap-key">ALT</span>
+          <div class="ap-b" id="ap-alt-dn">−</div>
+          <span class="ap-val" id="ap-v-alt">0 m</span>
+          <div class="ap-b" id="ap-alt-up">＋</div>
+        </div>
+        <div class="ap-row">
+          <span class="ap-key">V/S</span>
+          <div class="ap-b" id="ap-vs-dn">−</div>
+          <span class="ap-val" id="ap-v-vs">0</span>
+          <div class="ap-b" id="ap-vs-up">＋</div>
+          <div class="ap-b wide" id="ap-vrt-alt">ALT</div>
+          <div class="ap-b wide" id="ap-vrt-appr">APPR</div>
+        </div>
+        <div class="ap-row">
+          <div class="ap-b wide" id="ap-align">LOC+GS アライン</div>
+          <div class="ap-b wide" id="ap-master">AP ON</div>
+          <div class="ap-b wide" id="ap-close">✕ 閉じる</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- メニュー（背景は 3D 機体プレビューが回転） -->
+    <div class="overlay top" id="menu-overlay">
+      <div class="title">AIRLINER SIM</div>
+      <div class="subtitle">高グラフィック品質 3D 旅客機フライト — Phase 1: 3D 描画基盤</div>
+
+      <div class="section-label">機体選択（3D プレビュー）</div>
+      <div class="cards" id="aircraft-cards"></div>
+
+      <div class="section-label">空港</div>
+      <div class="chip-row" id="airport-chips"></div>
+
+      <div class="section-label">モード</div>
+      <div class="chip-row" id="mode-chips"></div>
+
+      <div class="section-label">表示</div>
+      <div class="chip-row" id="display-chips"></div>
+
+      <div class="section-label">画質</div>
+      <div class="chip-row" id="quality-chips"></div>
+
+      <div class="section-label">時刻</div>
+      <div class="chip-row" id="time-chips"></div>
+
+      <div class="section-label">天候</div>
+      <div class="chip-row" id="weather-chips"></div>
+
+      <div class="section-label">風</div>
+      <div class="chip-row" id="wind-chips"></div>
+
+      <button class="big-btn" id="btn-start">飛行を開始</button>
+
+      <div class="note">
+        <b>自由飛行</b>: 滑走路上でエンジン始動済み。スロットルを上げて離陸 → 巡航 → 着陸まで自分で操縦。<br>
+        <b>デモ飛行</b>: 自動操縦で離陸→巡航→着陸を観察（カメラ検証用）。<br>
+        Phase 3 実装: 6-DOF 物理（揚力・抗力・失速・G・接地）/ 仮想スティック / ヨー / フラップ / スポイラー / ギア / ブレーキ。<br>
+        操作: 左=スティック（上=機首上げ・右=右ロール）右=スロットル・ボタン。PC キー: 矢印/WASD・Q/E・Shift/Ctrl・G・F/V・X・B・C・P。横向き推奨。<br>
+        機体外部モデル: Cesium Air © CesiumGS（CC-BY）— 差し替えは public/airliner.glb、?nomodel=1 で手続機体。
+      </div>
+    </div>
+
+    <!-- 一時停止 -->
+    <div class="overlay hidden" id="pause-overlay">
+      <div class="title">一時停止</div>
+      <div class="subtitle">PAUSED</div>
+      <button class="big-btn" id="btn-resume">再開</button>
+      <button class="big-btn secondary" id="btn-restart">デモを最初から</button>
+      <button class="big-btn secondary" id="btn-to-menu">メインメニューへ</button>
+    </div>
+
+    <!-- 縦画面誘導 -->
+    <div class="overlay hidden" id="portrait-overlay">
+      <div class="rot-icon">🔄</div>
+      <div class="title">横画面にしてください</div>
+      <div class="subtitle">本シミュレーターは横向きプレイ向けです。端末を 90° 回転させてください。</div>
+    </div>
+
+    <!-- WebGL エラー -->
+    <div class="overlay hidden" id="webgl-error">
+      <div class="title">WebGL を初期化できません</div>
+      <div class="subtitle" id="webgl-error-detail">
+        お使いのブラウザは WebGL に対応していないか、無効になっています。<br>
+        Safari の設定・プライベートブラウズ・低電力モードを確認してください。
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
