@@ -17,7 +17,7 @@ export const WORLD = {
 
 export const CAMERA = {
   FOV: 60,
-  FOV_COCKPIT: 62,
+  FOV_COCKPIT: 78, // v27: 広角化（62→78）
   /** 視点切替の補間時間 [s] */
   BLEND_TIME: 0.65,
   /** 観察カメラの自動旋回速度 [rad/s] */

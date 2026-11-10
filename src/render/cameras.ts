@@ -34,7 +34,7 @@ const MODE_ORDER: CameraMode[] = ['cockpit', 'chase'];
  * カメラ位置を変えるときはこの関数だけを変える。
  */
 export function cockpitEyeLocal(size: number, out: THREE.Vector3): THREE.Vector3 {
-  return out.set(0, size * 0.026, size * 0.305);
+  return out.set(0, size * 0.045, size * 0.29); // v27: 目線上げ+やや後退（ユーザー指定）
 }
 
 export interface AircraftPose {

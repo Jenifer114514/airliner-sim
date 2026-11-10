@@ -56,8 +56,8 @@ export function loadCockpitModel(): Promise<THREE.Group | null> {
   loading ??= (async (): Promise<Template | null> => {
     try {
       const base = (import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? './';
-      const res = await fetch(base + MODEL_FILE, { cache: 'force-cache' });
-      if (!res.ok) return null;
+      const res = await fetch(base + MODEL_FILE, { cache: 'no-cache' });
+      if (!res.ok) { console.warn('[cockpit] glb fetch 失敗:', res.status); return null; }
       const buf = await res.arrayBuffer();
       // dev サーバは存在しないパスに index.html を返すことがある → 'glTF' マジックで弾く
       if (buf.byteLength < 12 || new DataView(buf).getUint32(0, true) !== 0x46546c67) return null;
@@ -73,7 +73,8 @@ export function loadCockpitModel(): Promise<THREE.Group | null> {
       tpl = prepare(gltf.scene);
       console.info('[cockpit]', COCKPIT_MODEL_CREDIT);
       return tpl;
-    } catch {
+    } catch (e) {
+      console.warn('[cockpit] glb parse 失敗:', e);
       return null;
     }
   })();
@@ -96,6 +97,19 @@ function prepare(root: THREE.Group): Template {
       const std = m as THREE.MeshStandardMaterial;
       if (!std.isMeshStandardMaterial) continue;
       std.envMapIntensity = 0.8;
+      // v27: 窓ガラスのスモークを薄く（ユーザー指定）。名称/半透明の薄素材をガラス扱い。
+      {
+        const isGlass = /glass|window|windshield|canopy/i.test(m.name || '') ||
+          (std.transparent && std.opacity < 0.85 && std.metalness === 0);
+        if (isGlass) {
+          std.color.lerp(new THREE.Color(0xffffff), 0.55);
+          std.transparent = true;
+          std.opacity = std.opacity >= 0.85 ? 0.22 : Math.max(0.08, std.opacity * 0.5);
+          std.depthWrite = false;
+          const phys = std as unknown as { transmission?: number };
+          if (typeof phys.transmission === 'number') phys.transmission = Math.min(1, phys.transmission + 0.3);
+        }
+      }
       // 不透明で自前のエミッシブが無いパネル類: ベース色を弱いエミッシブとして重ねる（暗部の底上げ）
       if (!std.transparent && std.map && !std.emissiveMap) {
         std.emissive.set(0xffffff);

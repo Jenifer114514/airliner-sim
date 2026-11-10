@@ -43,17 +43,19 @@ export function extModelTemplate(): Promise<GltfLite | null> {
   template ??= (async (): Promise<GltfLite | null> => {
     try {
       const url = (import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? './';
-      const res = await fetch(url + 'airliner.glb', { cache: 'force-cache' });
-      if (!res.ok) return null;
+      // v27: no-cache（force-cache だと 404 応答の再生成後も古い NotFound が使い回され機体が消える）
+      const res = await fetch(url + 'airliner.glb', { cache: 'no-cache' });
+      if (!res.ok) { console.warn('[ext] airliner.glb fetch 失敗:', res.status, url + 'airliner.glb'); return null; }
       const buf = await res.arrayBuffer();
       return await new Promise<GltfLite | null>((ok) => {
         new GLTFLoader().parse(
           buf, '',
           (g) => ok(g as unknown as GltfLite),
-          () => ok(null)
+          (e) => { console.warn('[ext] GLB parse 失敗:', e); ok(null); }
         );
       });
-    } catch {
+    } catch (e) {
+      console.warn('[ext] airliner.glb 読込例外:', e);
       return null;
     }
   })();
