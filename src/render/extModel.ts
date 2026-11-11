@@ -64,6 +64,12 @@ export function extModelTemplate(): Promise<GltfLite | null> {
 
 /** buildAirliner の group に実モデルを接続。proc は非表示化。成功時 true。 */
 export async function attachExtModel(group: THREE.Group): Promise<boolean> {
+  // buildAirliner 直後、機体がワールドに配置される前にローカル基準を保存する。
+  // 読込完了を待ってから測ると移動・回転後のワールド座標やコックピットが混ざり、
+  // その座標を子のローカル位置として使うことでモデルが機体から遠く離れてしまう。
+  const pb = new THREE.Box3().setFromObject(group);
+  const pc = pb.getCenter(new THREE.Vector3());
+  const ps = pb.getSize(new THREE.Vector3());
   const t = await extModelTemplate();
   if (!t) return false;
   if (group.userData.extModel) return false; // 二重接続ガード
@@ -71,11 +77,6 @@ export async function attachExtModel(group: THREE.Group): Promise<boolean> {
   const root = t.scene.clone(true);
   const mixer = new THREE.AnimationMixer(root);
   for (const a of t.animations) mixer.clipAction(a).play();
-
-  // 手続側の基準 bbox（proc 束ねの前に計測）
-  const pb = new THREE.Box3().setFromObject(group);
-  const pc = pb.getCenter(new THREE.Vector3());
-  const ps = pb.getSize(new THREE.Vector3());
 
   root.updateMatrixWorld(true);
   const mb = new THREE.Box3().setFromObject(root);
