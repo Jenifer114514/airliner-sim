@@ -698,6 +698,8 @@ export class Game {
       });
     }
     if (this.cockpit) {
+      // 外観モデルの読み込みを優先。内装は初めてコックピット視点を選んだ時に読み込む。
+      if (this.rig.mode === 'cockpit') this.cockpit.ensureModel();
       // v26: 内蔵cockpitの可視性——毎フレーム同期（rig.setMode 直呼びでも壊れない）
       if (this.player) this.player.group.userData.extCockpitView = this.rig.mode === 'cockpit' || this.cockpit.hasModel(); // 専用cockpit存在時は内蔵版非描画（二重描画防止）
       // 室内の明るさ: 昼=1 / 夜≈0.12（空の半球光に追従）。GLB コックピットの環境光の底上げに使う

@@ -25,7 +25,6 @@ import { Overlays } from './ui/overlays.js';
 import { FlightControls } from './sim/flight-controls.js';
 import type { QualityLevel } from './config/constants.js';
 
-import { loadCockpitModel } from './render/cockpitModel.js';
 // ============================================================
 // 0. DOM
 // ============================================================
@@ -74,7 +73,6 @@ await loadTerrainBake();
 // 失敗・未対応環境は prime 内で同期フォールバック（同一コードなので出力は同一）。
 await primeWorld();
 const game = new Game(renderer, scene, camera);
-void loadCockpitModel(); // public/cockpit.glb があれば先読み（無ければ手続コックピットのまま）
 const explosion = new ExplosionFX(scene);
 explosion.camera = camera;
 const controls = new FlightControls();

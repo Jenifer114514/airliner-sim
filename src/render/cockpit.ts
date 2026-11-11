@@ -18,6 +18,8 @@ export interface CockpitParts {
   update(fill?: number): void;
   /** GLB モデルに差し替え済みか（検証用） */
   hasModel(): boolean;
+  /** コックピット視点に入った時だけ大きな内装モデルを読み込む。 */
+  ensureModel(): void;
 }
 
 export function buildCockpit(spec: AirlinerSpec): CockpitParts {
@@ -95,11 +97,18 @@ export function buildCockpit(spec: AirlinerSpec): CockpitParts {
     proc.visible = false;
     model = m;
   };
-  attachModel(); // 読み込み済みなら即時（フラッシュ防止）
-  if (!model) void loadCockpitModel().then(attachModel); // 未読み込みなら完了後に差し替え
+  let requested = false;
+  const ensureModel = (): void => {
+    if (model || requested) return;
+    attachModel(); // 以前にロード済みなら再利用
+    if (model) return;
+    requested = true;
+    void loadCockpitModel().then(attachModel).catch((e) => console.warn('[cockpit] attach 失敗:', e));
+  };
 
   return {
     group,
+    ensureModel,
     update(fill = 1) {
       if (model) setCockpitFill(fill);
       // Phase 4 で計器針を動かす
