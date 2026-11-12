@@ -107,7 +107,19 @@ export async function attachExtModel(group: THREE.Group): Promise<boolean> {
   const mb2 = new THREE.Box3().setFromObject(root);
   root.position.x += pc.x - mb2.getCenter(new THREE.Vector3()).x;
   root.position.z += pc.z - mb2.getCenter(new THREE.Vector3()).z;
-  root.position.y += pb.min.y - mb2.min.y; // 下面（接地面）揃え
+  // モデル全体の AABB は回転した部品の外接箱を含み、車輪より大幅に下へ
+  // 膨らむことがある。787 の左右主輪ノードを接地点にし、手続機体の脚の
+  // 接地高さ（pb.min.y）に合わせる。他モデルは従来の下面基準にフォールバック。
+  const wheelBottoms: number[] = [];
+  root.traverse((o) => {
+    if (!/^Main_Wheels_(Left|Right)(?:_\d+)?$/i.test(o.name)) return;
+    const box = new THREE.Box3().setFromObject(o);
+    if (!box.isEmpty() && Number.isFinite(box.min.y)) wheelBottoms.push(box.min.y);
+  });
+  const contactY = wheelBottoms.length
+    ? wheelBottoms.reduce((sum, y) => sum + y, 0) / wheelBottoms.length
+    : mb2.min.y;
+  root.position.y += pb.min.y - contactY;
 
   root.traverse((o) => {
     const m = o as THREE.Mesh;
